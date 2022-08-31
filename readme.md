@@ -1,0 +1,5 @@
+- init other repos: git submodule update --init && cd driftpy && git submodule update --init
+- build solana validator: cd solana/validator && cargo build 
+    - cli solana-test-validator doesnt have `--accounts-dir` flag yet so we need to clone ...
+    - solana/target/debug/solana-test-validator should exist 
+- python main.py 

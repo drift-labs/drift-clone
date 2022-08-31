@@ -1,0 +1,2 @@
+#!/bin/bash
+./solana/target/debug/solana-test-validator --account-dir accounts/Bank --account-dir accounts/User --account-dir accounts/State --account-dir accounts/UserStats --account-dir accounts/Market --bpf-program 65sz7dRiWDRPZjiRxcTxPM7AE6VK4Nag9HEK6oBJXhJn accounts/65sz7dRiWDRPZjiRxcTxPM7AE6VK4Nag9HEK6oBJXhJn.so --reset
