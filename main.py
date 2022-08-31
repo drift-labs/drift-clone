@@ -36,7 +36,7 @@ import os
 import time
 import signal
 
-kp = Keypair()
+state_kp = Keypair()
 
 accounts_dir = pathlib.Path('accounts/')
 if accounts_dir.exists():
@@ -53,7 +53,7 @@ keypairs_dir.mkdir(parents=True, exist_ok=True)
 
 config = configs['devnet']
 url = 'https://api.devnet.solana.com'
-wallet = Wallet(kp)
+wallet = Wallet(state_kp)
 connection = AsyncClient(url)
 provider = Provider(connection, wallet)
 ch = ClearingHouse.from_config(config, provider)
@@ -100,6 +100,9 @@ async def download_all_accounts(
         addresses += [a.account.amm.oracle for a in accounts]
     elif account_type == 'Bank':
         addresses += [a.account.oracle for a in accounts]
+    elif account_type == 'State':
+        assert len(addresses) == 1 
+
     print(f'found {len(accounts)} accounts...')
     
     account_infos = await batch_get_account_infos(
@@ -120,7 +123,6 @@ async def download_all_accounts(
 types = [
     "Bank", 
     "Market", 
-    "State"
 ]
 for account_type in types: 
     print(f'saving account type: {account_type}')
@@ -129,6 +131,32 @@ for account_type in types:
         accounts_dir
     )
 
+#%%
+lamports = 6674640
+state_accounts = await ch.program.account["State"].all()
+assert len(state_accounts) == 1
+state = state_accounts[0]
+
+state_path = accounts_dir/"State"
+state_path.mkdir(parents=True, exist_ok=True)
+
+state.account.admin = state_kp.public_key
+
+anchor_state = Instruction(data=state.account, name="State")
+data = ch.program.account["State"]._coder.accounts.build(anchor_state)
+acc_data = base64.b64encode(data).decode("utf-8")
+account_info = {
+    'data': [acc_data, 'base64'],
+    'executable': False,
+    'lamports': lamports,
+    'owner': str(ch.program_id),
+    'rentEpoch': 367
+}
+save_account_info(
+    state_path/(str(state.public_key) + '.json'), 
+    account_info, 
+    str(state.public_key)
+)
 
 #%%
 rent_epoch = 365 # hardcoded for now
@@ -295,11 +323,31 @@ for kp in pk_2_kp.values():
     chs[str(kp.public_key)] = ch
 
 #%%
+await connection.request_airdrop(
+    state_kp.public_key, 
+    int(100 * 1e9)
+)
+
+#%%
+wallet = Wallet(state_kp)
+provider = Provider(connection, wallet)
+ch = ClearingHouse.from_config(config, provider, admin=True)
+await ch.update_auction_duration(0, 0)
+
+#%%
+ch = chs[list(chs.keys())[1]]
 user = await get_user_account(
     ch.program, 
     ch.authority
 )
-[p for p in user.positions if p.market_index == 0]
+[p for p in user.positions if p.market_index == 0][0].base_asset_amount
+
+#%%
+state = await get_state_account(ch.program)
+state.max_auction_duration, state.min_auction_duration
+
+#%%
+sig = await ch.close_position(0)
 
 #%%
 sig = await ch.add_liquidity(100, 0)
@@ -308,15 +356,54 @@ sig = await ch.add_liquidity(100, 0)
 await connection.get_transaction(sig)
 
 #%%
-for ch in chs.values():
-    await ch.close_position(0)
+#%%
+from tqdm.notebook import tqdm 
+
+total_baa = 0 
+sigs = []
+for ch in tqdm(chs.values()):
+    user = await get_user_account(
+        ch.program, 
+        ch.authority
+    )
+    position = [p for p in user.positions if p.market_index == 0][0]
+    baa = position.base_asset_amount
+
+    if position.lp_shares > 0:
+        print('removeing...', position.lp_shares)
+        sig = await ch.remove_liquidity(position.lp_shares, 0)
+        sigs.append(sig)
+
+    if baa != 0:
+        print('closing...', baa/1e13)
+        sig = await ch.close_position(0)
+        sigs.append(sig)
+        total_baa += abs(baa)
+total_baa
+
+#%%
+while True:
+    resp = await connection.get_transaction(sigs[0])
+    if resp['result'] is not None: 
+        break 
+
+#%%
+total_baa = 0
+for ch in tqdm(chs.values()):
+    user = await get_user_account(
+        ch.program, 
+        ch.authority
+    )
+    baa = [p for p in user.positions if p.market_index == 0][0].base_asset_amount
+    total_baa += abs(baa)
+total_baa
 
 #%%
 market = await get_market_account(
     ch.program, 
     0
 )
-market
+market.amm.net_base_asset_amount
 
 # %%
 await get_bank_account(
