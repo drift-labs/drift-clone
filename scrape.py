@@ -6,6 +6,7 @@
 # run a local validator with accounts preloaded 
 # run close all simulation 
 
+# todo: full script -- rn only notebook
 #%%
 %load_ext autoreload
 %autoreload 2
@@ -86,13 +87,16 @@ async def batch_get_account_infos(
         account_infos += batch_account_infos
     return account_infos
 
+def init_account_dir(account_type: str):
+    path = accounts_dir/account_type
+    path.mkdir(parents=True, exist_ok=True)
+    return path 
+
 async def download_all_accounts(
     account_type: str, 
-    account_dir: pathlib.Path,
     batch_size: int = 100
 ): 
-    path = account_dir/account_type
-    path.mkdir(parents=True, exist_ok=True)
+    path = init_account_dir(account_type)
 
     accounts = await ch.program.account[account_type].all()
     addresses = [a.public_key for a in accounts]
@@ -100,8 +104,6 @@ async def download_all_accounts(
         addresses += [a.account.amm.oracle for a in accounts]
     elif account_type == 'Bank':
         addresses += [a.account.oracle for a in accounts]
-    elif account_type == 'State':
-        assert len(addresses) == 1 
 
     print(f'found {len(accounts)} accounts...')
     
@@ -117,8 +119,6 @@ async def download_all_accounts(
             str(pubkey)
         )
 
-#%%
-# types = ch.program.account.keys()
 ## clone with no mods
 types = [
     "Bank", 
@@ -126,19 +126,16 @@ types = [
 ]
 for account_type in types: 
     print(f'saving account type: {account_type}')
-    await download_all_accounts(
-        account_type,
-        accounts_dir
-    )
+    await download_all_accounts(account_type)
 
 #%%
+## change the admin 
 lamports = 6674640
 state_accounts = await ch.program.account["State"].all()
 assert len(state_accounts) == 1
 state = state_accounts[0]
 
-state_path = accounts_dir/"State"
-state_path.mkdir(parents=True, exist_ok=True)
+state_path = init_account_dir("State")
 
 state.account.admin = state_kp.public_key
 
@@ -159,30 +156,22 @@ save_account_info(
 )
 
 #%%
+user_path = init_account_dir("User")
+user_stats_path = init_account_dir("UserStats")
+
 rent_epoch = 365 # hardcoded for now
 user_lamports = 63231600 # hardcoded for now
 user_accounts = await ch.program.account["User"].all()
 
-# user_pks = [a.public_key for a in user_accounts]
-# user_account_infos = await batch_get_account_infos(user_pks, 100)
-
 user_stats_lamports = 2289840 # hardcoded 
 user_stats_accounts = await ch.program.account["UserStats"].all()
 
-# user_stats_pks = [a.public_key for a in user_stats_accounts]
-# user_stats_account_infos = await batch_get_account_infos(user_stats_pks, 100)
+print(f'found {len(user_accounts) + len(user_stats_accounts)} number of accounts...')
 
 full_users = {}
 for user in user_accounts:
     user_stats = [us for us in user_stats_accounts if us.account.authority == user.account.authority][0]
     full_users[str(user.account.authority)] = {"user": user, "user_stats": user_stats}
-
-#%%
-user_path = accounts_dir/"User"
-user_path.mkdir(parents=True, exist_ok=True)
-
-user_stats_path = accounts_dir/"UserStats"
-user_stats_path.mkdir(parents=True, exist_ok=True)
 
 pk_2_kp = {}
 for old_auth in full_users.keys():
@@ -243,7 +232,10 @@ for old_auth in full_users.keys():
 
     # save auth kp
     with open(keypairs_dir/f'{kp.public_key}.secret', 'w') as f: 
-        f.write(str(kp.secret_key))
+        f.write(kp.secret_key.hex())
+
+with open(keypairs_dir/f'state.secret', 'w') as f: 
+    f.write(state_kp.secret_key.hex())
 
 #%%
 def setup_validator_script(
@@ -263,6 +255,8 @@ def setup_validator_script(
     # d = devnet
     command = f"solana program dump -u d {program_address} {program_path}"
     os.system(command)
+    
+    program_path = f"driftpy/protocol-v2/target/deploy/clearing_house.so"
     validator_str += f' --bpf-program {program_address} {program_path}'
 
     # hard reset 
@@ -278,145 +272,6 @@ setup_validator_script(
     script_file
 )
 
-class LocalValidator:
-    def __init__(self, script_file) -> None:
-        self.script_file = script_file
-        
-    def start(self):
-        """
-        starts a new solana-test-validator by running the given script path 
-        and logs the stdout/err to the logfile 
-        """
-        self.log_file = open('node.txt', 'w')
-        self.proc = Popen(
-            f'bash {self.script_file}'.split(' '), 
-            stdout=self.log_file, 
-            stderr=self.log_file, 
-            preexec_fn=os.setsid
-        )
-        time.sleep(5)
-
-    def stop(self):
-        self.log_file.close()
-        os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)  
-
-validator = LocalValidator(script_file)
-validator.start()
-
-#%%
-config = configs['devnet']
-url = 'http://127.0.0.1:8899'
-connection = AsyncClient(url)
-
-#%%
-chs = {}
-for kp in pk_2_kp.values():
-    await connection.request_airdrop(
-        kp.public_key, 
-        int(100 * 1e9)
-    )
-
-    # save clearing house
-    wallet = Wallet(kp)
-    provider = Provider(connection, wallet)
-    ch = ClearingHouse.from_config(config, provider)
-    chs[str(kp.public_key)] = ch
-
-#%%
-await connection.request_airdrop(
-    state_kp.public_key, 
-    int(100 * 1e9)
-)
-
-#%%
-wallet = Wallet(state_kp)
-provider = Provider(connection, wallet)
-ch = ClearingHouse.from_config(config, provider, admin=True)
-await ch.update_auction_duration(0, 0)
-
-#%%
-ch = chs[list(chs.keys())[1]]
-user = await get_user_account(
-    ch.program, 
-    ch.authority
-)
-[p for p in user.positions if p.market_index == 0][0].base_asset_amount
-
-#%%
-state = await get_state_account(ch.program)
-state.max_auction_duration, state.min_auction_duration
-
-#%%
-sig = await ch.close_position(0)
-
-#%%
-sig = await ch.add_liquidity(100, 0)
-
-#%%
-await connection.get_transaction(sig)
-
 #%%
 #%%
-from tqdm.notebook import tqdm 
-
-total_baa = 0 
-sigs = []
-for ch in tqdm(chs.values()):
-    user = await get_user_account(
-        ch.program, 
-        ch.authority
-    )
-    position = [p for p in user.positions if p.market_index == 0][0]
-    baa = position.base_asset_amount
-
-    if position.lp_shares > 0:
-        print('removeing...', position.lp_shares)
-        sig = await ch.remove_liquidity(position.lp_shares, 0)
-        sigs.append(sig)
-
-    if baa != 0:
-        print('closing...', baa/1e13)
-        sig = await ch.close_position(0)
-        sigs.append(sig)
-        total_baa += abs(baa)
-total_baa
-
 #%%
-while True:
-    resp = await connection.get_transaction(sigs[0])
-    if resp['result'] is not None: 
-        break 
-
-#%%
-total_baa = 0
-for ch in tqdm(chs.values()):
-    user = await get_user_account(
-        ch.program, 
-        ch.authority
-    )
-    baa = [p for p in user.positions if p.market_index == 0][0].base_asset_amount
-    total_baa += abs(baa)
-total_baa
-
-#%%
-market = await get_market_account(
-    ch.program, 
-    0
-)
-market.amm.net_base_asset_amount
-
-# %%
-await get_bank_account(
-    ch.program, 0
-)
-
-# %%
-ch.program.program_id
-
-# %%
-validator.stop()
-
-# %%
-
-
-# %%
