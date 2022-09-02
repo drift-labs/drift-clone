@@ -89,6 +89,8 @@ for p in pathlib.Path('keypairs/').iterdir():
         ch = ClearingHouse.from_config(config, provider)
         chs.append(ch)
 
+assert state_kp is not None
+
 #%%
 await state_ch.update_auction_duration(0, 0)
 await state_ch.update_max_base_asset_amount_ratio(1, 0)
@@ -97,28 +99,41 @@ await state_ch.update_market_base_asset_amount_step_size(1, 0)
 #%%
 from tqdm.notebook import tqdm 
 
-total_baa = 0 
+net_baa = 0 
 sigs = []
 for ch in tqdm(chs):
     user = await get_user_account(
         ch.program, 
         ch.authority
     )
-    position = [p for p in user.positions if p.market_index == 0][0]
-    baa = position.base_asset_amount
+    position = [p for p in user.positions if p.market_index == 0 and (p.base_asset_amount != 0 or p.lp_shares > 0)]
 
-    if position.lp_shares > 0:
-        print('removeing...', position.lp_shares)
-        sig = await ch.remove_liquidity(position.lp_shares, 0)
-        sigs.append(sig)
+    if len(position) > 0:
+        assert len(position) == 1
+        position = position[0]
+        baa = position.base_asset_amount
 
-    if baa != 0:
-        print('closing...', baa/1e13)
-        sig = await ch.close_position(0)
-        sigs.append(sig)
-        total_baa += abs(baa)
+        # if position.lp_shares > 0:
+        #     print('removing...', position.lp_shares)
+        #     sig = await ch.remove_liquidity(position.lp_shares, 0)
+        #     sigs.append(sig)
 
-total_baa
+        if baa != 0:
+            print('closing...', baa/1e13)
+            sig = await ch.close_position(0)
+            sigs.append(sig)
+            net_baa += baa
+
+net_baa
+
+# #%%
+# await ch.add_liquidity(100, 0)
+
+#%%
+market = await get_market_account(
+    ch.program, 0
+)
+market.amm.net_base_asset_amount
 
 #%%
 while True:
@@ -137,10 +152,13 @@ for ch in tqdm(chs):
         ch.program, 
         ch.authority
     )
-    baa = [p for p in user.positions if p.market_index == 0][0].base_asset_amount
-    if baa != 0:
+    position = [p for p in user.positions if p.market_index == 0 and (p.base_asset_amount != 0 or p.lp_shares > 0)]
+    if len(position) > 0:
+        assert len(position) == 1
+        position = position[0]
+        baa = position.base_asset_amount
         print('baa:', baa/1e13)
-    total_baa += abs(baa)
+        total_baa += abs(baa)
 total_baa
 
 #%%
@@ -154,6 +172,26 @@ market.amm.net_base_asset_amount
 validator.stop()
 
 # %%
+config = configs['devnet']
+url = 'https://api.devnet.solana.com'
+wallet = Wallet(state_kp)
+connection = AsyncClient(url)
+provider = Provider(connection, wallet)
+ch = ClearingHouse.from_config(config, provider)
 
+# %%
+# from driftpy.src.driftpy.types import Market
+market = await get_market_account(
+    ch.program, 
+    0
+)
+net_baa = market.amm.net_base_asset_amount + market.amm.net_unsettled_lp_base_asset_amount
+bar = market.amm.base_asset_reserve
+qar = market.amm.quote_asset_reserve
+
+# net_baa > 0 then users need to short & so net_baa + bar = tbar 
+# net-baa < 0 then users need to long & so net_baa - b
+net_baa + bar < market.amm.max_base_asset_reserve
+net_baa + bar > market.amm.min_base_asset_reserve
 
 # %%
