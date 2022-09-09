@@ -29,28 +29,8 @@ import os
 import time
 import signal
 from driftpy.admin import Admin
-
-class LocalValidator:
-    def __init__(self, script_file) -> None:
-        self.script_file = script_file
-        
-    def start(self):
-        """
-        starts a new solana-test-validator by running the given script path 
-        and logs the stdout/err to the logfile 
-        """
-        self.log_file = open('node.txt', 'w')
-        self.proc = Popen(
-            f'bash {self.script_file}'.split(' '), 
-            stdout=self.log_file, 
-            stderr=self.log_file, 
-            preexec_fn=os.setsid
-        )
-        time.sleep(5)
-
-    def stop(self):
-        self.log_file.close()
-        os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)  
+from helpers import *
+from tqdm.notebook import tqdm 
 
 script_file = 'start_local.sh'
 os.system(f'cat {script_file}')
@@ -64,33 +44,7 @@ connection = AsyncClient(url)
 validator.start()
 
 #%%
-state_ch = None
-chs = []
-
-for p in pathlib.Path('keypairs/').iterdir():
-    with open(p, 'r') as f: 
-        s = f.read()
-    kp = Keypair().from_secret_key(bytearray.fromhex(s))
-    
-    await connection.request_airdrop(
-        kp.public_key, 
-        int(100 * 1e9)
-    )
-
-    # save clearing house
-    wallet = Wallet(kp)
-    provider = Provider(connection, wallet)
-
-    if p.name == 'state.secret':
-        print('found admin...')
-        state_kp = kp 
-        state_ch = Admin.from_config(config, provider)
-    else:
-        ch = ClearingHouse.from_config(config, provider)
-        chs.append(ch)
-
-assert state_kp is not None
-state_kp.public_key
+chs, state_ch = load_local_users(config, connection)
 
 #%%
 await state_ch.update_auction_duration(0, 0)
@@ -98,16 +52,10 @@ await state_ch.update_max_base_asset_amount_ratio(1, 0)
 # await state_ch.update_market_base_asset_amount_step_size(1, 0)
 
 #%%
-from tqdm.notebook import tqdm 
-
 net_baa = 0 
 sigs = []
 for ch in tqdm(chs):
-    user = await get_user_account(
-        ch.program, 
-        ch.authority
-    )
-    position = [p for p in user.positions if p.market_index == 0 and (p.base_asset_amount != 0 or p.lp_shares > 0)]
+    position = ch.get_user_position(0)
 
     if len(position) > 0:
         assert len(position) == 1

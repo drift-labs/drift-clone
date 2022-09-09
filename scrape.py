@@ -8,9 +8,6 @@
 
 # todo: full script -- rn only notebook
 #%%
-%load_ext autoreload
-%autoreload 2
-
 import sys
 sys.path.append('driftpy/src/')
 
@@ -36,29 +33,8 @@ import os
 import time
 import signal
 
-state_kp = Keypair()
-
 accounts_dir = pathlib.Path('accounts/')
-if accounts_dir.exists():
-    print('removing existing accounts...')
-    shutil.rmtree(accounts_dir)
-
 keypairs_dir = pathlib.Path('keypairs/')
-if keypairs_dir.exists():
-    print('removing existing keypairs...')
-    shutil.rmtree(keypairs_dir)
-
-accounts_dir.mkdir(parents=True, exist_ok=True)
-keypairs_dir.mkdir(parents=True, exist_ok=True)
-
-config = configs['devnet']
-# url = 'https://api.devnet.solana.com'
-url = "http://3.220.170.22:8899"
-wallet = Wallet(state_kp)
-connection = AsyncClient(url)
-provider = Provider(connection, wallet)
-ch = ClearingHouse.from_config(config, provider)
-print(ch.program_id)
 
 # %%
 def save_account_info(
@@ -71,12 +47,11 @@ def save_account_info(
         'account': account_info,
         'pubkey': pubkey
     }
-    if path.exists(): 
-        print(f'overwriting path {path}...')
     with open(path, 'w') as f: 
         json.dump(local_account, f)
     
 async def batch_get_account_infos(
+    connection,
     addresses,
     batch_size = 100,
 ):
@@ -93,7 +68,6 @@ async def batch_get_account_infos(
         if _slot == None: 
             _slot = slot 
         elif slot != _slot: 
-            print(_slot, slot)
             is_same_slot = False
 
         account_infos += batch_account_infos['value']
@@ -105,35 +79,7 @@ def init_account_dir(account_type: str):
     path.mkdir(parents=True, exist_ok=True)
     return path 
 
-async def download_all_accounts(
-    account_type: str, 
-    batch_size: int = 100
-): 
-    path = init_account_dir(account_type)
-
-    accounts = await ch.program.account[account_type].all()
-    addresses = [a.public_key for a in accounts]
-    if account_type == 'Market':
-        addresses += [a.account.amm.oracle for a in accounts]
-    elif account_type == 'Bank':
-        addresses += [a.account.oracle for a in accounts]
-
-    print(f'found {len(accounts)} accounts...')
-    
-    account_infos, _ = await batch_get_account_infos(
-        addresses,
-        batch_size
-    )
-    
-    for account_info, pubkey in zip(account_infos, addresses):
-        save_account_info(
-            path/(str(pubkey) + '.json'), 
-            account_info, 
-            str(pubkey)
-        )
-
-#%%
-async def get_all_pks(type):
+async def get_all_pks(ch, type):
     accounts = await ch.program.account[type].all()
     addrs = [u.public_key for u in accounts]
     indexs = [len(addrs)]
@@ -152,87 +98,20 @@ async def get_all_pks(type):
 
     return addrs, indexs, types
 
-types = []
-indexs = []
-addrs = []
-for k in ch.program.account.keys():
-    k_addrs, k_indexs, k_types = await get_all_pks(k)
-    indexs += [i + len(addrs) for i in k_indexs]
-    addrs += k_addrs
-    types += k_types
-
-len(addrs), indexs, types
-
-#%%
-success = False 
-while not success:
-    account_infos, success = await batch_get_account_infos(
-        addrs, 
-        batch_size=40
-    )
-    time.sleep(2)
-len(account_infos), success
-
-#%%
-for addr, acc in zip(addrs, account_infos):
-    if acc is None or acc['data'] is None: 
-        print(addr)
-
-#%%
-type_accounts = {}
-
-def decode(type, data):
+def decode(ch, type, data):
     data = base64.b64decode(data)
     account = ch.program.account[type]._coder.accounts.parse(data).data
     return account
 
-def encode(type, account):
+def encode(ch, type, account):
     anchor_data = Instruction(data=account, name=type)
     data = ch.program.account[type]._coder.accounts.build(anchor_data)
     data = base64.b64encode(data).decode("utf-8")
     return data
 
-do_nothing_types = [
-    "Bank",
-    "Market",
-    "Oracles"
-]
-
-for i in range(len(types)):
-    type = types[i]
-    if i == 0:
-        acc_info = account_infos[:indexs[i]]
-        addr_info = addrs[:indexs[i]]
-    else:
-        acc_info = account_infos[indexs[i-1]:indexs[i]]
-        addr_info = addrs[indexs[i-1]:indexs[i]] 
-
-    if type in do_nothing_types:
-        print(f'saving {len(acc_info)} without mod: {type}...')
-        assert len(acc_info) == len(addr_info)
-        state_path = init_account_dir(type)
-        for acc, addr in zip(acc_info, addr_info):
-            print(f'saving addr {addr}')
-            save_account_info(
-                state_path/(str(addr) + '.json'), 
-                acc, 
-                str(addr)
-            )
-    else:
-        for addr, enc_account in zip(addr_info, acc_info):
-            data = enc_account['data'][0]
-            enc_account['decoded_data'] = decode(type, data)
-            enc_account['addr'] = addr
-
-        type_accounts[type] = acc_info
-
-#%%
-## dont do anything to the market or bank 
-
-def state_mod(state):
-    state.admin = state_kp.public_key
-
 def modify_and_save_account(
+    ch,
+    type_accounts,
     type, 
     mod_fcn
 ):
@@ -247,168 +126,15 @@ def modify_and_save_account(
         if new_addr is not None:
             addr = new_addr
 
-        account_dict['data'][0] = encode(type, obj)
+        account_dict['data'][0] = encode(ch, type, obj)
         save_account_info(
             state_path/(str(addr) + '.json'), 
             account_dict, 
             str(addr)
         )
 
-auth_to_new_kp = {}
-def user_user_stats_mod(
-    type,
-    user_or_stats,
-):
-    global auth_to_new_kp
-
-    old_admin = user_or_stats.authority
-    if str(old_admin) in auth_to_new_kp:
-        kp = auth_to_new_kp[str(old_admin)]
-    else:
-        kp = Keypair()
-        auth_to_new_kp[str(old_admin)] = kp
-        with open(keypairs_dir/f'{kp.public_key}.secret', 'w') as f: 
-            f.write(kp.secret_key.hex())
-    
-    user_or_stats.authority = kp.public_key
-
-    if type == 'User':
-        new_addr = get_user_account_public_key(
-            ch.program_id, 
-            kp.public_key,
-            user_or_stats.user_id
-        )
-    elif type == 'UserStats':
-        new_addr = get_user_stats_account_public_key(
-            ch.program_id, 
-            kp.public_key,
-        )
-
-    return new_addr
-
-modify_and_save_account("State", state_mod)
-modify_and_save_account("User", lambda a: user_user_stats_mod("User", a))
-modify_and_save_account("UserStats", lambda a: user_user_stats_mod("UserStats", a))
-
-with open(keypairs_dir/f'state.secret', 'w') as f: 
-    f.write(state_kp.secret_key.hex())
-
-#%%
-# #%%
-# ## change the admin 
-# lamports = 6674640
-# state_accounts = await ch.program.account["State"].all()
-# assert len(state_accounts) == 1
-# state = state_accounts[0]
-
-# state_path = init_account_dir("State")
-
-# state.account.admin = state_kp.public_key
-
-# anchor_state = Instruction(data=state.account, name="State")
-# data = ch.program.account["State"]._coder.accounts.build(anchor_state)
-# acc_data = base64.b64encode(data).decode("utf-8")
-# account_info = {
-#     'data': [acc_data, 'base64'],
-#     'executable': False,
-#     'lamports': lamports,
-#     'owner': str(ch.program_id),
-#     'rentEpoch': 367
-# }
-# save_account_info(
-#     state_path/(str(state.public_key) + '.json'), 
-#     account_info, 
-#     str(state.public_key)
-# )
-
-#%%
-user_path = init_account_dir("User")
-user_stats_path = init_account_dir("UserStats")
-
-rent_epoch = 365 # hardcoded for now
-user_lamports = 63231600 # hardcoded for now
-user_accounts = await ch.program.account["User"].all()
-
-user_stats_lamports = 2289840 # hardcoded 
-user_stats_accounts = await ch.program.account["UserStats"].all()
-
-print(f'found {len(user_accounts) + len(user_stats_accounts)} number of accounts...')
-
-full_users = {}
-for user in user_accounts:
-    user_stats = [us for us in user_stats_accounts if us.account.authority == user.account.authority][0]
-    full_users[str(user.account.authority)] = {"user": user, "user_stats": user_stats}
-
-net_baa = 0
-pk_2_kp = {}
-for old_auth in full_users.keys():
-    user = full_users[old_auth]['user']
-    user_stats = full_users[old_auth]['user_stats']
-
-    kp = Keypair()
-    pk_2_kp[str(kp.public_key)] = kp
-    user_obj: User = user.account
-    user_stats_obj: UserStats = user_stats.account
-
-    # change authority key 
-    user_obj.authority = kp.public_key
-    user_stats_obj.authority = kp.public_key
-
-    position = [p for p in user_obj.positions if p.market_index == 0 and p.base_asset_amount != 0]
-    if len(position) > 0:
-        assert len(position) == 1
-        net_baa += position[0].base_asset_amount
-
-    # rederive pda addresses 
-    new_user_pk = get_user_account_public_key(
-        ch.program_id, 
-        kp.public_key
-    )
-    new_user_stats_pk = get_user_stats_account_public_key(
-        ch.program_id, 
-        kp.public_key
-    )
-
-    # save account infos for solana-test-validator
-    anchor_user = Instruction(data=user_obj, name="User")
-    data = ch.program.account["User"]._coder.accounts.build(anchor_user)
-    user_acc_data = base64.b64encode(data).decode("utf-8")
-    user_account_info = {
-        'data': [user_acc_data, 'base64'],
-        'executable': False,
-        'lamports': user_lamports,
-        'owner': str(ch.program_id),
-        'rentEpoch': rent_epoch
-    }
-    save_account_info(
-        user_path/(str(new_user_pk) + '.json'), 
-        user_account_info, 
-        str(new_user_pk)
-    )
-
-    anchor_user_stats = Instruction(data=user_stats_obj, name="UserStats")
-    data = ch.program.account["UserStats"]._coder.accounts.build(anchor_user_stats)
-    user_stats_acc_data = base64.b64encode(data).decode("utf-8")
-    user_stats_account_info = {
-        'data': [user_stats_acc_data, 'base64'],
-        'executable': False,
-        'lamports': user_stats_lamports,
-        'owner': str(ch.program_id),
-        'rentEpoch': rent_epoch
-    }
-    save_account_info(
-        user_stats_path/(str(new_user_stats_pk) + '.json'), 
-        user_stats_account_info, 
-        str(new_user_stats_pk)
-    )
-
-    # save auth kp
-    with open(keypairs_dir/f'{kp.public_key}.secret', 'w') as f: 
-        f.write(kp.secret_key.hex())
-
-
-#%%
 def setup_validator_script(
+    ch: ClearingHouse,
     validator_path: str,
     script_file: str
 ):
@@ -435,12 +161,145 @@ def setup_validator_script(
     with open(script_file, 'w') as f: 
         f.write(validator_str)
 
-validator_path = './solana/target/debug/solana-test-validator'
-script_file = 'start_local.sh'
-setup_validator_script(
-    validator_path,
-    script_file
-)
+async def main():
+    if accounts_dir.exists():
+        print('removing existing accounts...')
+        shutil.rmtree(accounts_dir)
+
+    if keypairs_dir.exists():
+        print('removing existing keypairs...')
+        shutil.rmtree(keypairs_dir)
+
+    accounts_dir.mkdir(parents=True, exist_ok=True)
+    keypairs_dir.mkdir(parents=True, exist_ok=True)
+
+    config = configs['devnet']
+
+    # url = 'https://api.devnet.solana.com'
+    url = "http://3.220.170.22:8899"
+
+    state_kp = Keypair() ## new admin kp
+    wallet = Wallet(state_kp)
+    connection = AsyncClient(url)
+    provider = Provider(connection, wallet)
+    ch = ClearingHouse.from_config(config, provider)
+    print('reading program:', ch.program_id)
+
+    print('scraping...')
+    types = []
+    indexs = []
+    addrs = []
+    for k in ch.program.account.keys():
+        k_addrs, k_indexs, k_types = await get_all_pks(ch, k)
+        indexs += [i + len(addrs) for i in k_indexs]
+        addrs += k_addrs
+        types += k_types
+    
+    print(f'found {len(addrs)} accounts...')
+
+    success = False 
+    while not success:
+        account_infos, success = await batch_get_account_infos(
+            connection,
+            addrs, 
+            batch_size=40
+        )
+        time.sleep(2)
+    
+    for addr, acc in zip(addrs, account_infos):
+        if acc is None or acc['data'] is None: 
+            print("rpc returned no value for addr acc:", addr, acc)
+            print('failed: exiting...')
+            return
+
+    print("editing and saving accounts...")
+    type_accounts = {}
+    do_nothing_types = [
+        "Bank",
+        "Market",
+        "Oracles"
+    ]
+    for i in range(len(types)):
+        type = types[i]
+        if i == 0:
+            acc_info = account_infos[:indexs[i]]
+            addr_info = addrs[:indexs[i]]
+        else:
+            acc_info = account_infos[indexs[i-1]:indexs[i]]
+            addr_info = addrs[indexs[i-1]:indexs[i]] 
+
+        if type in do_nothing_types:
+            assert len(acc_info) == len(addr_info)
+            state_path = init_account_dir(type)
+            for acc, addr in zip(acc_info, addr_info):
+                save_account_info(
+                    state_path/(str(addr) + '.json'), 
+                    acc, 
+                    str(addr)
+                )
+        else:
+            for addr, enc_account in zip(addr_info, acc_info):
+                data = enc_account['data'][0]
+                enc_account['decoded_data'] = decode(ch, type, data)
+                enc_account['addr'] = addr
+
+            type_accounts[type] = acc_info
+    
+    def state_mod(state):
+        state.admin = state_kp.public_key
+
+    auth_to_new_kp = {}
+    def user_user_stats_mod(
+        type,
+        user_or_stats,
+    ):
+        old_admin = user_or_stats.authority
+        if str(old_admin) in auth_to_new_kp:
+            kp = auth_to_new_kp[str(old_admin)]
+        else:
+            kp = Keypair()
+            auth_to_new_kp[str(old_admin)] = kp
+            with open(keypairs_dir/f'{kp.public_key}.secret', 'w') as f: 
+                f.write(kp.secret_key.hex())
+        
+        user_or_stats.authority = kp.public_key
+
+        if type == 'User':
+            new_addr = get_user_account_public_key(
+                ch.program_id, 
+                kp.public_key,
+                user_or_stats.user_id
+            )
+        elif type == 'UserStats':
+            new_addr = get_user_stats_account_public_key(
+                ch.program_id, 
+                kp.public_key,
+            )
+
+        return new_addr
+
+    modify_and_save_account(ch, type_accounts, "State", state_mod)
+    modify_and_save_account(ch, type_accounts, "User", lambda a: user_user_stats_mod("User", a))
+    modify_and_save_account(ch, type_accounts, "UserStats", lambda a: user_user_stats_mod("UserStats", a))
+
+    with open(keypairs_dir/f'state.secret', 'w') as f: 
+        f.write(state_kp.secret_key.hex())
+
+    print('setting up validator scripts...')
+    validator_path = './solana/target/debug/solana-test-validator'
+    script_file = 'start_local.sh'
+    setup_validator_script(
+        ch,
+        validator_path,
+        script_file
+    )
+    
+    print(f'bash {script_file} to start the local validator...')
+    print('done :)')
+
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(main())
 
 #%%
 #%%
