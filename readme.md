@@ -1,5 +1,6 @@
 ## req 
 - python >= 3.9
+    - conda create -n tmp python=3.9
 - pip install -r req.txt
 
 - init other repos: git submodule update --init && cd driftpy && git submodule update --init

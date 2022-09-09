@@ -24,7 +24,7 @@ from driftpy.accounts import *
 from solana.publickey import PublicKey
 from solana.keypair import Keypair
 import pathlib 
-from tqdm.notebook import tqdm 
+from tqdm import tqdm 
 import shutil
 from anchorpy import Instruction
 import base64
