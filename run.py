@@ -90,11 +90,12 @@ for p in pathlib.Path('keypairs/').iterdir():
         chs.append(ch)
 
 assert state_kp is not None
+state_kp.public_key
 
 #%%
 await state_ch.update_auction_duration(0, 0)
 await state_ch.update_max_base_asset_amount_ratio(1, 0)
-await state_ch.update_market_base_asset_amount_step_size(1, 0)
+# await state_ch.update_market_base_asset_amount_step_size(1, 0)
 
 #%%
 from tqdm.notebook import tqdm 
@@ -113,27 +114,18 @@ for ch in tqdm(chs):
         position = position[0]
         baa = position.base_asset_amount
 
-        # if position.lp_shares > 0:
-        #     print('removing...', position.lp_shares)
-        #     sig = await ch.remove_liquidity(position.lp_shares, 0)
-        #     sigs.append(sig)
-
-        if baa != 0:
-            print('closing...', baa/1e13)
-            sig = await ch.close_position(0)
+        if position.lp_shares > 0:
+            print('removing...', position.lp_shares)
+            sig = await ch.remove_liquidity(position.lp_shares, 0)
             sigs.append(sig)
-            net_baa += baa
+
+        # if baa != 0:
+        #     print('closing...', baa/1e13)
+        #     sig = await ch.close_position(0)
+        #     sigs.append(sig)
+        #     net_baa += baa
 
 net_baa
-
-# #%%
-# await ch.add_liquidity(100, 0)
-
-#%%
-market = await get_market_account(
-    ch.program, 0
-)
-market.amm.net_base_asset_amount
 
 #%%
 while True:
@@ -142,11 +134,17 @@ while True:
         break 
 
 #%%
+market = await get_market_account(
+    ch.program, 0
+)
+market.amm.net_base_asset_amount, market.amm.net_unsettled_lp_base_asset_amount
+
+#%%
 msg: str = resp['result']['meta']['logMessages']
 msg
 
 #%%
-total_baa = 0
+net_baa = 0
 for ch in tqdm(chs):
     user = await get_user_account(
         ch.program, 
@@ -158,8 +156,8 @@ for ch in tqdm(chs):
         position = position[0]
         baa = position.base_asset_amount
         print('baa:', baa/1e13)
-        total_baa += abs(baa)
-total_baa
+        net_baa += baa
+net_baa
 
 #%%
 market = await get_market_account(

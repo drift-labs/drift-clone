@@ -16,7 +16,6 @@ sys.path.append('driftpy/src/')
 
 import driftpy
 print(driftpy.__path__)
-
 from driftpy.types import User
 from driftpy.constants.config import configs
 from anchorpy import Provider
@@ -72,10 +71,8 @@ def save_account_info(
         'account': account_info,
         'pubkey': pubkey
     }
-
     if path.exists(): 
         print(f'overwriting path {path}...')
-
     with open(path, 'w') as f: 
         json.dump(local_account, f)
     
@@ -178,7 +175,8 @@ len(account_infos), success
 
 #%%
 for addr, acc in zip(addrs, account_infos):
-    print(addr, acc)
+    if acc is None or acc['data'] is None: 
+        print(addr)
 
 #%%
 type_accounts = {}
