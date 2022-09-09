@@ -1,3 +1,7 @@
+## req 
+- python >= 3.9
+- pip install -r req.txt
+
 - init other repos: git submodule update --init && cd driftpy && git submodule update --init
 - build solana validator: cd solana/validator && cargo build 
     - cli solana-test-validator doesnt have `--accounts-dir` flag yet so we need to clone ...
