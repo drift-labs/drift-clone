@@ -1,11 +1,16 @@
-- init other repos: git submodule update --init && cd driftpy && git submodule update --init
-- build solana validator: cd solana/validator && cargo build 
-    - cli solana-test-validator doesnt have `--accounts-dir` flag yet so we need to clone ...
-    - solana/target/debug/solana-test-validator should exist 
-- `python scrape.py`
-- `close_all.ipynb`
+## req 
+- python >= 3.9
+    - conda create -n tmp python=3.9
+- pip install -r req.txt
+- bash setup.sh:
+    - inits other submodules
+    - builds v2 & solana -- cli solana-test-validator doesnt have `--accounts-dir` flag yet so we need to clone full solana repo (grab some tea lol) ... 
+    
+## main files
+- `python scrape.py`: scrape devent to local
+- `close_all.ipynb`: close out the users + adjust the clearing house's state 
 
-## notes
+## random notes
 - when you scrape make sure... 
     - program_id is up to date in the driftpy sdk 
     - make sure program in driftpy/protocol-v2 is the same version as program_id 

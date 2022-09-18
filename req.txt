@@ -1,0 +1,6 @@
+anchorpy
+solana
+tqdm 
+pandas 
+ipywidgets
+jupyter
