@@ -9,6 +9,7 @@
 ## main files
 - `python scrape.py`: scrape devent to local
 - `close_all.ipynb`: close out the users + adjust the clearing house's state 
+- `invariants.py`: assert invariants hold true (eg, market.net_baa = sum(user.baa))
 
 ## random notes
 - when you scrape make sure... 
