@@ -6,7 +6,6 @@
 # run a local validator with accounts preloaded 
 # run close all simulation 
 
-# todo: full script -- rn only notebook
 #%%
 import sys
 sys.path.append('driftpy/src/')
@@ -24,7 +23,7 @@ from driftpy.accounts import *
 from solana.publickey import PublicKey
 from solana.keypair import Keypair
 import pathlib 
-from tqdm.notebook import tqdm 
+from tqdm import tqdm 
 import shutil
 from anchorpy import Instruction
 import base64
@@ -175,8 +174,8 @@ async def main():
 
     config = configs['devnet']
 
-    # url = 'https://api.devnet.solana.com'
-    url = "http://3.220.170.22:8899"
+    url = 'https://api.devnet.solana.com'
+    # url = "http://3.220.170.22:8899"
 
     state_kp = Keypair() ## new admin kp
     wallet = Wallet(state_kp)
@@ -202,7 +201,7 @@ async def main():
         account_infos, success = await batch_get_account_infos(
             connection,
             addrs, 
-            batch_size=40
+            batch_size=100
         )
         time.sleep(2)
     
