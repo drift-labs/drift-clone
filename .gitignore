@@ -2,6 +2,7 @@ accounts/
 keypairs/
 test-ledger/
 node.txt
+env.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

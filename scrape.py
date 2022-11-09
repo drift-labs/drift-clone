@@ -12,6 +12,7 @@ sys.path.append('driftpy/src/')
 
 import driftpy
 print(driftpy.__path__)
+
 from driftpy.types import User
 from driftpy.constants.config import configs
 from anchorpy import Provider
@@ -31,11 +32,11 @@ from subprocess import Popen
 import os 
 import time
 import signal
+import yaml
 
 accounts_dir = pathlib.Path('accounts/')
 keypairs_dir = pathlib.Path('keypairs/')
 
-# %%
 def save_account_info(
     path: pathlib.Path,
     account_info, 
@@ -75,21 +76,24 @@ async def batch_get_account_infos(
 
 def init_account_dir(account_type: str):
     path = accounts_dir/account_type
-    path.mkdir(parents=True, exist_ok=True)
-    return path 
+    # path.mkdir(parents=True, exist_ok=True)
+    return accounts_dir
 
 async def get_all_pks(ch, type):
     accounts = await ch.program.account[type].all()
     addrs = [u.public_key for u in accounts]
     indexs = [len(addrs)]
     types = [type]
+
+    print(f'found {len(accounts)} accounts for type {type}...')
     
-    if type == 'Market':
+    if type == 'PerpMarket':
         oracles = [a.account.amm.oracle for a in accounts]
         addrs += oracles
         indexs.append(len(addrs))
         types.append("Oracles")
-    elif type == 'Bank':
+
+    elif type == 'SpotMarket':
         oracles = [a.account.oracle for a in accounts]
         addrs += oracles
         indexs.append(len(addrs))
@@ -108,29 +112,12 @@ def encode(ch, type, account):
     data = base64.b64encode(data).decode("utf-8")
     return data
 
-def modify_and_save_account(
-    ch,
-    type_accounts,
-    type, 
-    mod_fcn
-):
-    state_path = init_account_dir(type)
-
-    accounts = type_accounts[type]
-    for account_dict in accounts:
-        obj = account_dict.pop('decoded_data')
-        addr: PublicKey = account_dict.pop('addr')
-
-        new_addr = mod_fcn(obj)
-        if new_addr is not None:
-            addr = new_addr
-
-        account_dict['data'][0] = encode(ch, type, obj)
-        save_account_info(
-            state_path/(str(addr) + '.json'), 
-            account_dict, 
-            str(addr)
-        )
+# def modify_and_save_account(
+#     ch,
+#     type_accounts,
+#     type, 
+#     mod_fcn
+# ):
 
 def setup_validator_script(
     ch: ClearingHouse,
@@ -139,16 +126,20 @@ def setup_validator_script(
 ):
     # load accounts
     validator_str = f"#!/bin/bash\n{validator_path}"
-    for d in accounts_dir.iterdir():
-        if '.so' not in str(d):
-            validator_str += f' --account-dir {d}'    
+    # for d in accounts_dir.iterdir():
+    #     if '.so' not in str(d):
+    #         validator_str += f' --account-dir {d}'    
+    
+    validator_str += f' --account-dir accounts/'    
 
     # load program
     # https://github.com/drift-labs/protocol-v2/blob/master/sdk/src/config.ts
     program_address = str(ch.program_id)
     program_path = f"{accounts_dir}/{program_address}.so"
     # d = devnet
-    command = f"solana program dump -u d {program_address} {program_path}"
+    # m = mainnet
+    print('scraping mainnet program...')
+    command = f"solana program dump -u m {program_address} {program_path}"
     os.system(command)
     
     # program_path = f"driftpy/protocol-v2/target/deploy/clearing_house.so"
@@ -160,7 +151,19 @@ def setup_validator_script(
     with open(script_file, 'w') as f: 
         f.write(validator_str)
 
-async def main():
+async def scrape():
+    config = configs['mainnet']
+    with open('env.yaml', 'r') as f:
+        key = yaml.safe_load(f)['key']
+    url = f'https://drift-cranking.rpcpool.com/{key}'
+    
+    state_kp = Keypair() ## new admin kp
+    wallet = Wallet(state_kp)
+    connection = AsyncClient(url)
+    provider = Provider(connection, wallet)
+    ch = ClearingHouse.from_config(config, provider)
+    print('reading from program:', ch.program_id)
+    
     if accounts_dir.exists():
         print('removing existing accounts...')
         shutil.rmtree(accounts_dir)
@@ -171,18 +174,6 @@ async def main():
 
     accounts_dir.mkdir(parents=True, exist_ok=True)
     keypairs_dir.mkdir(parents=True, exist_ok=True)
-
-    config = configs['devnet']
-
-    url = 'https://api.devnet.solana.com'
-    # url = "http://3.220.170.22:8899"
-
-    state_kp = Keypair() ## new admin kp
-    wallet = Wallet(state_kp)
-    connection = AsyncClient(url)
-    provider = Provider(connection, wallet)
-    ch = ClearingHouse.from_config(config, provider)
-    print('reading program:', ch.program_id)
 
     print('scraping...')
     types = []
@@ -197,7 +188,10 @@ async def main():
     print(f'found {len(addrs)} accounts...')
 
     success = False 
+    attempt = 0
     while not success:
+        attempt += 1 
+        print(f'>> attempting to get accounts in same slot: attempt {attempt}...')
         account_infos, success = await batch_get_account_infos(
             connection,
             addrs, 
@@ -214,12 +208,14 @@ async def main():
     print("editing and saving accounts...")
     type_accounts = {}
     do_nothing_types = [
-        "Bank",
-        "Market",
-        "Oracles"
+        "SpotMarket",
+        "PerpMarket",
+        "Oracles", 
+        "InsuranceFundStake",
+        "SerumV3FulfillmentConfig",
     ]
     for i in range(len(types)):
-        type = types[i]
+        account_type = types[i]
         if i == 0:
             acc_info = account_infos[:indexs[i]]
             addr_info = addrs[:indexs[i]]
@@ -227,9 +223,10 @@ async def main():
             acc_info = account_infos[indexs[i-1]:indexs[i]]
             addr_info = addrs[indexs[i-1]:indexs[i]] 
 
-        if type in do_nothing_types:
+        if account_type in do_nothing_types:
             assert len(acc_info) == len(addr_info)
-            state_path = init_account_dir(type)
+            state_path = init_account_dir(account_type)
+            print(f'saving {account_type} {len(acc_info)} types to {state_path}...')
             for acc, addr in zip(acc_info, addr_info):
                 save_account_info(
                     state_path/(str(addr) + '.json'), 
@@ -239,50 +236,93 @@ async def main():
         else:
             for addr, enc_account in zip(addr_info, acc_info):
                 data = enc_account['data'][0]
-                enc_account['decoded_data'] = decode(ch, type, data)
+                enc_account['decoded_data'] = decode(ch, account_type, data)
                 enc_account['addr'] = addr
 
-            type_accounts[type] = acc_info
+            type_accounts[account_type] = acc_info
     
-    def state_mod(state):
-        state.admin = state_kp.public_key
+    state_path = init_account_dir("State")
+    accounts = type_accounts["State"]
+    assert len(accounts) == 1
+    for account_dict in accounts:
+        obj = account_dict.pop('decoded_data')
+        addr: PublicKey = account_dict.pop('addr')
 
-    auth_to_new_kp = {}
-    def user_user_stats_mod(
-        type,
-        user_or_stats,
-    ):
-        old_admin = user_or_stats.authority
-        if str(old_admin) in auth_to_new_kp:
-            kp = auth_to_new_kp[str(old_admin)]
-        else:
-            kp = Keypair()
-            auth_to_new_kp[str(old_admin)] = kp
-            with open(keypairs_dir/f'{kp.public_key}.secret', 'w') as f: 
-                f.write(kp.secret_key.hex())
-        
-        user_or_stats.authority = kp.public_key
+        # update admin 
+        obj.admin = state_kp.public_key
+        with open(keypairs_dir/'state.secret', 'w') as f: 
+            f.write(state_kp.secret_key.hex())
 
-        if type == 'User':
-            new_addr = get_user_account_public_key(
-                ch.program_id, 
-                kp.public_key,
-                user_or_stats.user_id
-            )
-        elif type == 'UserStats':
-            new_addr = get_user_stats_account_public_key(
-                ch.program_id, 
-                kp.public_key,
-            )
+        account_dict['data'][0] = encode(ch, "State", obj)
+        save_account_info(
+            state_path/(str(addr) + '.json'), 
+            account_dict, 
+            str(addr)
+        )
 
-        return new_addr
+    user_type = "User"
+    user_stats_type = "UserStats"
+    user_path = init_account_dir(user_type)
+    user_stats_path = init_account_dir(user_stats_type)
 
-    modify_and_save_account(ch, type_accounts, "State", state_mod)
-    modify_and_save_account(ch, type_accounts, "User", lambda a: user_user_stats_mod("User", a))
-    modify_and_save_account(ch, type_accounts, "UserStats", lambda a: user_user_stats_mod("UserStats", a))
+    auths_to_kps = {}
+    auths_to_subacc = {}
+    n_users = 0
+    n_users_stats = 0
 
-    with open(keypairs_dir/f'state.secret', 'w') as f: 
-        f.write(state_kp.secret_key.hex())
+    # populate new authorities 
+    for ty in [user_type, user_stats_type]:
+        accounts = type_accounts[ty]
+        save_path = user_path if ty == user_type else user_stats_path
+        for account_dict in accounts:
+            obj = account_dict.pop('decoded_data')
+            addr: PublicKey = account_dict.pop('addr')
+            old_auth = str(obj.authority)
+            if old_auth not in auths_to_kps: 
+                new_auth = Keypair()
+                auths_to_kps[old_auth] = new_auth
+                with open(keypairs_dir/f'{new_auth.public_key}.secret', 'w') as f: 
+                    f.write(new_auth.secret_key.hex())
+            else: 
+                new_auth = auths_to_kps[old_auth]
+            
+            # save objects with new authorities
+            obj.authority = new_auth.public_key
+
+            if ty == user_type:
+                n_users += 1
+                auths_to_subacc[old_auth] = auths_to_subacc.get(old_auth, []) + [obj.sub_account_id]
+                new_addr = get_user_account_public_key(
+                    ch.program_id, 
+                    new_auth.public_key,
+                    obj.sub_account_id
+                )
+            elif ty == user_stats_type:
+                n_users_stats += 1
+                new_addr = get_user_stats_account_public_key(
+                    ch.program_id, 
+                    new_auth.public_key,
+                )
+            else: 
+                raise
+
+            account_dict['data'][0] = encode(ch, ty, obj)
+            save_account_info(
+                save_path/(str(new_addr) + '.json'), 
+                account_dict, 
+                str(new_addr)
+            ) 
+
+    # for k, v in auths_to_subacc.items(): 
+    #     if 0 not in v: 
+    #         print(k, v)
+
+    print(
+        n_users, 
+        n_users_stats, 
+        len(list(auths_to_kps.keys())),
+        list(auths_to_subacc.values())
+    )
 
     print('setting up validator scripts...')
     validator_path = './solana/target/debug/solana-test-validator'
@@ -298,8 +338,6 @@ async def main():
 
 if __name__ == '__main__':
     import asyncio
-    asyncio.run(main())
+    asyncio.run(scrape())
 
-#%%
-#%%
-#%%
+# %%

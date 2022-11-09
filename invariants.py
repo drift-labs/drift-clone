@@ -35,7 +35,7 @@ async def validate_market_metrics(program, config):
     n_markets = len(config.markets)
 
     for market_index in range(n_markets):
-        market = await get_market_account(
+        market = await get_perp_market_account(
             program, 
             market_index
         )
@@ -45,7 +45,7 @@ async def validate_market_metrics(program, config):
         user_total_baa = 0 
         for user in user_accounts:
             user: User = user.account
-            position: list[MarketPosition] = [p for p in user.positions if p.market_index == market_index and not is_available(p)]
+            position: list[PerpPosition] = [p for p in user.perp_positions if p.market_index == market_index and not is_available(p)]
             if len(position) == 0: continue
             assert len(position) == 1
             position = position[0]
@@ -65,7 +65,7 @@ async def main():
     validator = LocalValidator(script_file)
     validator.start()
 
-    config = configs['devnet'] # cloned 
+    config = configs['mainnet'] # cloned 
     url = 'http://127.0.0.1:8899'
     connection = AsyncClient(url)
 
@@ -75,7 +75,6 @@ async def main():
     ch = ClearingHouse.from_config(config, provider)
 
     print('validating...')
-
     await validate_market_metrics(ch.program, config)
 
     validator.stop()
