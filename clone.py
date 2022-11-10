@@ -50,27 +50,52 @@ def save_account_info(
     with open(path, 'w') as f: 
         json.dump(local_account, f)
     
+def get_multiple_accounts_request(accounts):
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getMultipleAccounts",
+        "params": [
+            accounts,
+            {"encoding": "base64"}
+        ]
+    }
+
+import requests
 async def batch_get_account_infos(
-    connection,
+    connection: AsyncClient,
     addresses,
     batch_size = 100,
 ):
     _slot = None
     is_same_slot = True
     account_infos = []
+
+    acc_requests = []
     for i in tqdm(range(0, len(addresses), batch_size)):
         batch_addresses = addresses[i: i+batch_size]
-        # TODO: batch these multi account info requests?
-        batch_account_infos = (await connection.get_multiple_accounts(
-            batch_addresses
-        ))['result']
+        data = get_multiple_accounts_request(
+            [str(addr) for addr in batch_addresses]
+        )
+        acc_requests.append(data)
+
+    resp = requests.post(
+        connection._provider.endpoint_uri,
+        headers={"Content-Type": "application/json"}, 
+        json=acc_requests
+    )
+    resp = json.loads(resp.text)
+
+    for batch_account_infos in resp:
+        batch_account_infos = batch_account_infos['result']
         slot = batch_account_infos['context']['slot']
         if _slot == None: 
             _slot = slot 
         elif slot != _slot: 
             is_same_slot = False
-
         account_infos += batch_account_infos['value']
+
+    assert len(account_infos) == len(addresses)
 
     return account_infos, is_same_slot
 

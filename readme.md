@@ -1,14 +1,14 @@
 ## req 
 - python >= 3.9
-    - conda create -n tmp python=3.9
+    - conda create -n tmp python=3.10
 - pip install -r req.txt
 - bash setup.sh:
     - inits other submodules
     - builds v2 & solana -- cli solana-test-validator doesnt have `--accounts-dir` flag yet so we need to clone full solana repo (grab some tea lol) ... 
     
 ## main files
-- `python scrape.py`: scrape devent to local
-- `close_all.ipynb`: close out the users + adjust the clearing house's state 
+- `python clone.py`: clones mainnet to local
+- `close.py`: settles markets and all of the users positions
 - `invariants.py`: assert invariants hold true (eg, market.net_baa = sum(user.baa))
 
 ## random notes
