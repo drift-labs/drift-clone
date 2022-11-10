@@ -26,6 +26,7 @@ import time
 import signal
 from driftpy.admin import Admin
 from helpers import *
+from driftpy.constants.numeric_constants import AMM_RESERVE_PRECISION
 
 script_file = 'start_local.sh'
 os.system(f'cat {script_file}')
@@ -110,8 +111,24 @@ market = await get_perp_market_account(state_ch.program, perp_market_idx)
 market.amm.user_lp_shares
 
 #%%
-from driftpy.constants.numeric_constants import AMM_RESERVE_PRECISION
+sigs = []
+ch: ClearingHouse
+perp_market_idx = 0
+for ch in tqdm(chs):
+    for sid in ch.subaccounts:
+        position = await ch.get_user_position(perp_market_idx, sid)
+        if position is not None and position.open_orders > 0:
+            print('canceling open orders...')
+            sig = await ch.cancel_orders(sid)
+            sigs.append(sig)
 
+# verify 
+while True:
+    resp = await connection.get_transaction(sigs[-1])
+    if resp['result'] is not None: 
+        break 
+
+#%%
 for ch in tqdm(chs):
     for sid in ch.subaccounts:
         position = await ch.get_user_position(perp_market_idx, sid)
@@ -120,19 +137,13 @@ for ch in tqdm(chs):
             sig = await ch.close_position(perp_market_idx, subaccount_id=sid)
             sigs.append(sig)
 
+while True:
+    resp = await connection.get_transaction(sigs[-1])
+    if resp['result'] is not None: 
+        break 
+
 market = await get_perp_market_account(state_ch.program, perp_market_idx)
 market.amm.base_asset_amount_with_amm
-
-# %%
-if close_out:
-    # wait for txs to confirm
-    while True:
-        resp = await connection.get_transaction(sigs[-1])
-        if resp['result'] is not None: 
-            break 
-
-market = await get_market_account(state_ch.program, 0)
-net_baa, market.amm.net_base_asset_amount
 
 # %%
 # shutdown validator
