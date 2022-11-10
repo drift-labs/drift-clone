@@ -112,13 +112,6 @@ def encode(ch, type, account):
     data = base64.b64encode(data).decode("utf-8")
     return data
 
-# def modify_and_save_account(
-#     ch,
-#     type_accounts,
-#     type, 
-#     mod_fcn
-# ):
-
 def setup_validator_script(
     ch: ClearingHouse,
     validator_path: str,
@@ -163,6 +156,9 @@ async def scrape():
     provider = Provider(connection, wallet)
     ch = ClearingHouse.from_config(config, provider)
     print('reading from program:', ch.program_id)
+
+    state = await get_state_account(ch.program)
+    n_perps, n_spots = state.number_of_markets, state.number_of_spot_markets
     
     if accounts_dir.exists():
         print('removing existing accounts...')
@@ -184,6 +180,17 @@ async def scrape():
         indexs += [i + len(addrs) for i in k_indexs]
         addrs += k_addrs
         types += k_types
+
+    # include vaults 
+    for i in range(n_spots): 
+        vault_pk = get_spot_market_vault_public_key(
+            ch.program_id, i
+        )
+        if_pk = get_insurance_fund_vault_public_key(
+            ch.program_id, i
+        )
+        addrs.append(vault_pk)
+        addrs.append(if_pk)
     
     print(f'found {len(addrs)} accounts...')
 
@@ -204,6 +211,23 @@ async def scrape():
             print("rpc returned no value for addr acc:", addr, acc)
             print('failed: exiting...')
             return
+
+    # pop off the vault addrs + save
+    for i in list(range(n_spots))[::-1]:
+        addr = addrs.pop(-1)
+        acc_info = account_infos.pop(-1)
+        save_account_info(
+            accounts_dir/(str(addr) + '.json'), 
+            acc_info, 
+            str(addr)
+        )
+        addr = addrs.pop(-1)
+        acc_info = account_infos.pop(-1)
+        save_account_info(
+            accounts_dir/(str(addr) + '.json'), 
+            acc_info, 
+            str(addr)
+        )
 
     print("editing and saving accounts...")
     type_accounts = {}

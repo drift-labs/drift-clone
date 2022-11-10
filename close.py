@@ -1,7 +1,3 @@
-# %%
-# %load_ext autoreload
-# %autoreload 2
-
 import sys
 sys.path.append('driftpy/src/')
 
@@ -27,6 +23,26 @@ import signal
 from driftpy.admin import Admin
 from helpers import *
 from driftpy.constants.numeric_constants import AMM_RESERVE_PRECISION
+from solana.rpc import commitment
+import pprint
+
+async def view_logs(
+    sig: str,
+    provider: Provider,
+    print: bool = True
+):
+    provider.connection._commitment = commitment.Confirmed 
+    logs = ''
+    try: 
+        await provider.connection.confirm_transaction(sig, commitment.Confirmed)
+        logs = (await provider.connection.get_transaction(sig))["result"]["meta"]["logMessages"]
+    finally:
+        provider.connection._commitment = commitment.Processed 
+
+    if print:
+        pprint.pprint(logs)
+
+    return logs
 
 def load_subaccounts(chs):
     accounts = [p.stem for p in pathlib.Path('accounts').iterdir()]
@@ -45,14 +61,7 @@ def load_subaccounts(chs):
             active_chs.append(ch)
     return active_chs
 
-async def main():
-    script_file = 'start_local.sh'
-    os.system(f'cat {script_file}')
-    print()
-    validator = LocalValidator(script_file)
-    validator.start() # sometimes you gotta wait a bit for it to startup
-    time.sleep(3)
-
+async def clone_close():
     config = configs['mainnet']
     url = 'http://127.0.0.1:8899'
     connection = AsyncClient(url)
@@ -74,7 +83,7 @@ async def main():
 
     # + N seconds
     print('updating perp/spot market expiry...')
-    seconds_time = 20
+    seconds_time = 20 # inconsistent tbh 
     sigs = []
     for i in range(n_markets):
         sig = await state_ch.update_perp_market_expiry(i, dtime + seconds_time)
@@ -88,7 +97,7 @@ async def main():
     _sigs = []
     ch: ClearingHouse
     for perp_market_idx in range(n_markets):
-        for ch in tqdm(chs):
+        for ch in chs:
             for sid in ch.subaccounts:
                 position = await ch.get_user_position(perp_market_idx, sid)
                 if position is not None and position.lp_shares > 0:
@@ -131,42 +140,121 @@ async def main():
             market.amm.historical_oracle_data.last_oracle_price
         )
 
-    print('canceling open orders...')
-    ch: ClearingHouse
+    from driftpy.clearing_house import is_available
+    from termcolor import colored
+    import pprint
+
     for perp_market_idx in range(n_markets):
-        sigs = []
-        for ch in tqdm(chs):
-            # cancel orders
+        success = False
+        attempt = -1
+
+        n_users = 0
+        for ch in chs:
             for sid in ch.subaccounts:
-                position = await ch.get_user_position(perp_market_idx, sid)
-                if position is not None and position.open_orders > 0:
-                    sig = await ch.cancel_orders(sid)
-                    sigs.append(sig)
+                n_users += 1
 
-        # verify 
-        while True:
-            resp = await connection.get_transaction(sigs[-1])
-            if resp['result'] is not None: 
-                break 
+        while not success:
+            attempt += 1
+            success = True
+            i = 0
+            routines = []
 
-        for ch in tqdm(chs):
-            # close position
-            for sid in ch.subaccounts:
-                position = await ch.get_user_position(perp_market_idx, sid)
-                if position is not None and position.base_asset_amount != 0:
-                    print('closing...', position.base_asset_amount / AMM_RESERVE_PRECISION)
-                    sig = await ch.close_position(perp_market_idx, subaccount_id=sid)
-                    sigs.append(sig)
+            print(colored(f' =>> market {i}: settle attempt {attempt}', "blue"))
+            for ch in chs:
+                for sid in ch.subaccounts:
+                    position = await ch.get_user_position(perp_market_idx, sid)
+                    if position is None or is_available(position):
+                        i += 1
+                        continue
 
-        while True:
-            resp = await connection.get_transaction(sigs[-1])
-            if resp['result'] is not None: 
-                break 
+                    routines.append(ch.settle_pnl(ch.authority, perp_market_idx, sid))
 
-        market = await get_perp_market_account(state_ch.program, perp_market_idx)
-        print("market.amm.base_asset_amount_with_amm", market.amm.base_asset_amount_with_amm)
+            for routine in routines:
+                try:
+                    sig = await routine
+                    i += 1
+                    print(f'settled success... {i}/{n_users}')
+                except Exception as e: 
+                    success = False
+                    print(f'settled failed... {i}/{n_users}')
+                    pprint.pprint(e)
 
-    validator.stop()
+            print(f'settled fin... {i}/{n_users}')
+
+    for i in range(n_markets):
+        market = await get_perp_market_account(program, i)
+        print(
+            f'market {i} info:',
+            "\n\t market.amm.total_fee_minus_distributions:", 
+            market.amm.total_fee_minus_distributions,
+            "\n\t net baa & net unsettled:", 
+            market.amm.base_asset_amount_with_amm,
+            market.amm.base_asset_amount_with_unsettled_lp,
+            market.amm.base_asset_amount_with_amm + market.amm.base_asset_amount_with_unsettled_lp,
+            '\n\t net long/short',
+            market.amm.base_asset_amount_long, 
+            market.amm.base_asset_amount_short, 
+            market.amm.user_lp_shares, 
+            '\n\t cumulative_social_loss / funding:',
+            market.amm.total_social_loss, 
+            market.amm.cumulative_funding_rate_long, 
+            market.amm.cumulative_funding_rate_short, 
+            market.amm.last_funding_rate_long, 
+            market.amm.last_funding_rate_short, 
+            '\n\t fee pool:', market.amm.fee_pool.scaled_balance, 
+            '\n\t pnl pool:', market.pnl_pool.scaled_balance
+        )
+    print('---')
+
+    # print('canceling open orders...')
+    # ch: ClearingHouse
+    # for perp_market_idx in range(n_markets):
+    #     sigs = []
+    #     for ch in tqdm(chs):
+    #         # cancel orders
+    #         for sid in ch.subaccounts:
+    #             position = await ch.get_user_position(perp_market_idx, sid)
+    #             if position is not None and position.open_orders > 0:
+    #                 sig = await ch.cancel_orders(sid)
+    #                 sigs.append(sig)
+
+    #     # verify 
+    #     while True:
+    #         resp = await connection.get_transaction(sigs[-1])
+    #         if resp['result'] is not None: 
+    #             break 
+
+    #     for ch in tqdm(chs):
+    #         # close position
+    #         for sid in ch.subaccounts:
+    #             position = await ch.get_user_position(perp_market_idx, sid)
+    #             if position is not None and position.base_asset_amount != 0:
+    #                 print('closing...', position.base_asset_amount / AMM_RESERVE_PRECISION)
+    #                 sig = await ch.close_position(perp_market_idx, subaccount_id=sid)
+    #                 sigs.append(sig)
+
+    #     while True:
+    #         resp = await connection.get_transaction(sigs[-1])
+    #         if resp['result'] is not None: 
+    #             break 
+
+    #     market = await get_perp_market_account(state_ch.program, perp_market_idx)
+    #     print("market.amm.base_asset_amount_with_amm", market.amm.base_asset_amount_with_amm)
+
+
+async def main():
+    script_file = 'start_local.sh'
+    os.system(f'cat {script_file}')
+    print()
+
+    validator = LocalValidator(script_file)
+    validator.start() # sometimes you gotta wait a bit for it to startup
+    time.sleep(3)
+
+    try:
+        await clone_close()
+    finally:
+        validator.stop()
 
 if __name__ == '__main__':
     import asyncio
