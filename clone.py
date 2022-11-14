@@ -374,7 +374,7 @@ async def scrape():
     )
 
     print('setting up validator scripts...')
-    validator_path = './solana/target/debug/solana-test-validator'
+    validator_path = 'solana-test-validator'
     script_file = 'start_local.sh'
     setup_validator_script(
         ch,
