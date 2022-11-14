@@ -5,4 +5,4 @@ pandas
 ipywidgets
 jupyter
 asyncio
-pyyaml
+python-dotenv

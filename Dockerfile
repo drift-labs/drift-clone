@@ -7,3 +7,4 @@ ENV PATH="/root/.local/share/solana/install/active_release/bin:${PATH}"
 WORKDIR /drift-clone 
 RUN pip install -r req.txt
 RUN bash setup.sh
+RUN python clone.py && python close.py 
