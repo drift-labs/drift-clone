@@ -6,7 +6,7 @@
     - solana-test-validator --account-dir
 - bash setup.sh:
     - inits other submodules
-    - builds v2 & solana -- cli solana-test-validator doesnt have `--accounts-dir` flag yet so we need to clone full solana repo (grab some tea lol) ... 
+    - builds v2
     
 ## main files
 - `python clone.py`: clones mainnet to local
