@@ -35,7 +35,6 @@ from subprocess import Popen
 import os 
 import time
 import signal
-import yaml
 
 accounts_dir = pathlib.Path('accounts/')
 keypairs_dir = pathlib.Path('keypairs/')

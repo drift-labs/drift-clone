@@ -1,0 +1,1 @@
+python clone.py && python close.py
