@@ -9,8 +9,8 @@
     - builds v2
     
 ## main files
-- `python clone.py`: clones mainnet to local
-- `close.py`: settles markets and all of the users positions
+- `clone.py`: clones mainnet accounts to disk (is later loaded into a local validator)
+- `close.py`: closes all of the users positions
 - `invariants.py`: assert invariants hold true (eg, market.net_baa = sum(user.baa))
 
 ## random notes
