@@ -6,3 +6,4 @@ ipywidgets
 jupyter
 asyncio
 python-dotenv
+termcolor
