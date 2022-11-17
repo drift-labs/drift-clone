@@ -68,6 +68,8 @@ async def clone_close():
     config = configs['mainnet']
     url = 'http://127.0.0.1:8899'
     connection = AsyncClient(url)
+
+    print('loading users...')
     chs, state_ch = await load_local_users(config, connection)
     provider = state_ch.program.provider
     program = state_ch.program
@@ -110,10 +112,7 @@ async def clone_close():
 
     # verify 
     if len(_sigs) > 0:
-        while True:
-            resp = await connection.get_transaction(_sigs[-1])
-            if resp['result'] is not None: 
-                break 
+        await connection.confirm_transaction(_sigs[-1])
     market = await get_perp_market_account(state_ch.program, perp_market_idx)
     print("market.amm.user_lp_shares == 0: ", market.amm.user_lp_shares == 0)
 
@@ -185,13 +184,7 @@ async def clone_close():
 
         print('confirming...') 
         if len(settle_sigs) > 0:
-            while True:
-                resp = await connection.get_transaction(settle_sigs[-1])
-                if 'result' in resp and resp['result'] is not None: 
-                    break 
-                else: 
-                    print('...')
-                    time.sleep(2)
+            await connection.confirm_transaction(settle_sigs[-1])
 
     for ch in chs:
         for sid in ch.subaccounts:

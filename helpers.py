@@ -43,20 +43,22 @@ class LocalValidator:
 
 async def load_local_users(
     config,
-    connection, 
+    connection: AsyncClient, 
     keypairs_path='keypairs/',
 ):
     admin_ch = None
     chs = []
+    sigs = []
     for p in pathlib.Path(keypairs_path).iterdir():
         with open(p, 'r') as f: 
             s = f.read()
         kp = Keypair().from_secret_key(bytearray.fromhex(s))
         
-        await connection.request_airdrop(
+        sig = (await connection.request_airdrop(
             kp.public_key, 
             int(100 * 1e9)
-        )
+        ))['result']
+        sigs.append(sig)
 
         # save clearing house
         wallet = Wallet(kp)
@@ -68,5 +70,8 @@ async def load_local_users(
         else:
             ch = ClearingHouse.from_config(config, provider)
             chs.append(ch)
+
+    print('confirming SOL airdrops...')
+    await connection.confirm_transaction(sigs[-1])
 
     return chs, admin_ch
