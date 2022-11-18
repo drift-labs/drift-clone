@@ -1,12 +1,14 @@
 ## req 
-- python >= 3.9
-    - conda create -n tmp python=3.10
-- pip install -r req.txt
-- need solana-cli v1.14.7 or greater for --account-dir flag to work
-    - solana-test-validator --account-dir
-- bash setup.sh:
-    - inits other submodules
-    - builds v2
+```bash
+# setup env
+conda create -n tmp python=3.10
+pip install -r req.txt
+# inits other submodules
+git submodule update --init 
+```
+
+note: need solana-cli v1.14.7 or greater for local validator's --account-dir flag to work 
+(`sh -c "$(curl -sSfL https://release.solana.com/v1.14.7/install)"`)
     
 ## main files
 - `clone.py`: clones mainnet accounts to disk (is later loaded into a local validator)
