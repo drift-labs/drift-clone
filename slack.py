@@ -64,13 +64,14 @@ class SimulationResultBuilder:
     def __init__(self, slack: Slack) -> None:
         self.slack = slack
         self.start_time = dt.datetime.now()
+        self.commit_hash = os.environ.get("COMMIT")
         self.settled_markets = []
         self.total_users = 0
         self.settle_user_success = 0
         self.settle_user_fail_reasons = []
         self.resulting_markets = []
 
-        self.slack.send_message(f"Simulation run started at: {self.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        self.slack.send_message(f"Simulation run started at: {self.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}\nCommit: `{self.commit_hash}`")
 
     def set_start_time(self, start_time: dt.datetime):
         self.start_time = start_time
