@@ -9,6 +9,21 @@ git submodule update --init
 
 note: need solana-cli v1.14.7 or greater for local validator's --account-dir flag to work 
 (`sh -c "$(curl -sSfL https://release.solana.com/v1.14.7/install)"`)
+
+
+## Environment Variables
+
+These environment varibles are required to run the scripts
+
+**Required**:
+* one of the following are required
+    * `RPC_URL`, full Solana RPC node URL 
+    * `API_KEY`, API token for https://drift-cranking.rpcpool.com/
+
+**Optional**:
+* `SLACK_BOT_TOKEN` optional, slack messages will be no-op without this 
+* `SLACK_CHANNEL` optional, slack messages will be no-op without this
+
     
 ## main files
 - `clone.py`: clones mainnet accounts to disk (is later loaded into a local validator)

@@ -173,8 +173,13 @@ def setup_validator_script(
 
 async def scrape():
     config = configs['mainnet']
-    key = os.getenv("API_KEY")
-    url = f'https://drift-cranking.rpcpool.com/{key}'
+    if "RPC_URL" in os.environ:
+        url = os.getenv("RPC_URL")
+    elif "API_KEY" in os.environ:
+        url = f'https://drift-cranking.rpcpool.com/{os.getenv("API_KEY")}'
+    else:
+        raise Exception("Must set API_KEY or RPC_URL environment variables")
+
     
     state_kp = Keypair() ## new admin kp
     wallet = Wallet(state_kp)
