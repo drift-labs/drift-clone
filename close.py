@@ -22,12 +22,21 @@ import time
 import signal
 from driftpy.admin import Admin
 from helpers import *
-from driftpy.constants.numeric_constants import AMM_RESERVE_PRECISION
+from driftpy.constants.numeric_constants import (
+    AMM_RESERVE_PRECISION,
+    QUOTE_PRECISION,
+    BASE_PRECISION,
+    FUNDING_RATE_PRECISION,
+    PRICE_PRECISION,
+    SPOT_BALANCE_PRECISION
+)
 from solana.rpc import commitment
 import pprint
 from driftpy.clearing_house import is_available
 from termcolor import colored
 import pprint
+from slack import Slack, SimulationResultBuilder, ExpiredMarket, ResultingMarket
+import datetime as dt
 
 async def view_logs(
     sig: str,
@@ -64,7 +73,7 @@ def load_subaccounts(chs):
             active_chs.append(ch)
     return active_chs
 
-async def clone_close():
+async def clone_close(sim_results: SimulationResultBuilder):
     config = configs['mainnet']
     url = 'http://127.0.0.1:8899'
     connection = AsyncClient(url)
@@ -142,6 +151,14 @@ async def clone_close():
             market.amm.historical_oracle_data.last_oracle_price_twap,
             market.amm.historical_oracle_data.last_oracle_price
         )
+        expired_market = ExpiredMarket(
+            i,
+            market.status,
+            market.expiry_price / PRICE_PRECISION,
+            market.amm.historical_oracle_data.last_oracle_price_twap / PRICE_PRECISION,
+            market.amm.historical_oracle_data.last_oracle_price / PRICE_PRECISION
+        )
+        sim_results.add_settled_expired_market(expired_market)
 
 
     for perp_market_idx in range(n_markets):
@@ -153,6 +170,7 @@ async def clone_close():
         for ch in chs:
             for sid in ch.subaccounts:
                 n_users += 1
+        sim_results.add_total_users(n_users)
 
         while not success:
             attempt += 1
@@ -175,9 +193,11 @@ async def clone_close():
                     settle_sigs.append(sig)
                     i += 1
                     print(f'settled success... {i}/{n_users}')
+                    sim_results.add_settle_user_success()
                 except Exception as e: 
                     success = False
                     print(f'settled failed... {i}/{n_users}')
+                    sim_results.add_settle_user_fail(e)
                     pprint.pprint(e)
 
             print(f'settled fin... {i}/{n_users}')
@@ -217,7 +237,27 @@ async def clone_close():
             '\n\t fee pool:', market.amm.fee_pool.scaled_balance, 
             '\n\t pnl pool:', market.pnl_pool.scaled_balance
         )
+        resulting_market = ResultingMarket(
+            i,
+            market.amm.total_fee_minus_distributions / QUOTE_PRECISION,
+            market.amm.base_asset_amount_with_amm / BASE_PRECISION,
+            market.amm.base_asset_amount_with_unsettled_lp / BASE_PRECISION,
+            market.amm.base_asset_amount_long / BASE_PRECISION,
+            market.amm.base_asset_amount_short / BASE_PRECISION,
+            market.amm.user_lp_shares/ AMM_RESERVE_PRECISION,
+            market.amm.total_social_loss / QUOTE_PRECISION,
+            market.amm.cumulative_funding_rate_long / FUNDING_RATE_PRECISION,
+            market.amm.cumulative_funding_rate_short / FUNDING_RATE_PRECISION,
+            market.amm.last_funding_rate_long / FUNDING_RATE_PRECISION,
+            market.amm.last_funding_rate_short / FUNDING_RATE_PRECISION,
+            market.amm.fee_pool.scaled_balance / QUOTE_PRECISION,
+            market.pnl_pool.scaled_balance / SPOT_BALANCE_PRECISION
+        )
+        sim_results.add_resulting_market(resulting_market)
     print('---')
+
+    sim_results.set_end_time(dt.datetime.utcnow())
+    sim_results.post_result()
 
     # print('canceling open orders...')
     # ch: ClearingHouse
@@ -256,6 +296,11 @@ async def clone_close():
 
 
 async def main():
+
+    slack = Slack()
+    sim_results = SimulationResultBuilder(slack)
+    sim_results.set_start_time(dt.datetime.utcnow())
+
     script_file = 'start_local.sh'
     os.system(f'cat {script_file}')
     print()
@@ -265,7 +310,7 @@ async def main():
     time.sleep(10)
 
     try:
-        await clone_close()
+        await clone_close(sim_results)
     finally:
         validator.stop()
 

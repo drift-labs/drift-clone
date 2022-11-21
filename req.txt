@@ -7,3 +7,4 @@ jupyter
 asyncio
 python-dotenv
 termcolor
+slack-sdk
