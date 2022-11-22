@@ -41,9 +41,9 @@ RUN apt-get -y update && \
     apt-get install -y bzip2 git && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /workspace/bin/* /workspace/bin
+COPY --from=builder /workspace/bin/* /workspace/bin/
 
-COPY . /workspace/drift-clone
+COPY . /workspace/drift-clone/
 WORKDIR /workspace/drift-clone
 RUN pip install -r req.txt
 RUN bash setup.sh
