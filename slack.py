@@ -182,7 +182,7 @@ class SimulationResultBuilder:
     def print_perp_markets(self, markets: List[PerpMarketTuple]) -> str:
         msg = ""
         for market in markets:
-            msg += f" Market {market.market_idx}\n"
+            msg += f" Perp Market {market.market_idx}\n"
             msg += f"  Total fee minus distributions: {market.total_fee_minus_distributions}\n"
             msg += f"  Base asset amount with AMM:    {market.base_asset_amount_with_amm}\n"
             msg += f"  Base asset amount with LP:     {market.base_asset_amount_with_unsettled_lp}\n"
@@ -201,7 +201,7 @@ class SimulationResultBuilder:
     def print_spot_markets(self, markets: List[SpotMarketTuple]) -> str:
         msg = ""
         for market in markets:
-            msg += f" Market {market.market_idx}\n"
+            msg += f" Spot Market {market.market_idx}\n"
             msg += f"  Revenue pool:                  {market.revenue_pool}\n"
             msg += f"  Spot fee pool:                 {market.spot_fee_pool}\n"
             msg += f"  Insurance fund balance:        {market.insurance_fund_balance}\n"

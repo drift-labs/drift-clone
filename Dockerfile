@@ -46,6 +46,6 @@ COPY --from=builder /workspace/bin/* /workspace/bin
 COPY . /workspace/drift-clone
 WORKDIR /workspace/drift-clone
 RUN pip install -r req.txt
-RUN git submodule update --init 
+RUN bash setup.sh
 
 ENTRYPOINT bash run.sh

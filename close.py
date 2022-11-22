@@ -1,5 +1,6 @@
 import sys
 sys.path.append('driftpy/src/')
+sys.path.append('drift-sim/')
 
 from driftpy.types import User
 from driftpy.constants.config import configs
@@ -39,6 +40,11 @@ import pprint
 from slack import Slack, SimulationResultBuilder, ExpiredMarket
 
 import datetime as dt
+import importlib  
+from driftsim.backtest.liquidator import Liquidator
+import numpy as np 
+from driftpy.clearing_house_user import ClearingHouseUser
+from driftsim.backtest.main import _send_ix
 
 async def view_logs(
     sig: str,
@@ -108,10 +114,12 @@ async def clone_close(sim_results: SimulationResultBuilder):
         print(f" {i}: {insurance_fund_balance}")
         sim_results.add_initial_spot_market(insurance_fund_balance, spot_market)
 
-
     # update state 
     await state_ch.update_perp_auction_duration(0)
     await state_ch.update_lp_cooldown_time(0)
+    for i in range(n_spot_markets):
+        await state_ch.update_update_insurance_fund_unstaking_period(i, 0)
+        await state_ch.update_withdraw_guard_threshold(i, 2**64 - 1)
 
     print('delisting market...')
     slot = (await provider.connection.get_slot())['result']
@@ -129,6 +137,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
         sig = await state_ch.update_spot_market_expiry(i, dtime + seconds_time)
         sigs.append(sig)
 
+    # todo: repay withdraws
     # close out lps
     _sigs = []
     ch: ClearingHouse
@@ -182,6 +191,53 @@ async def clone_close(sim_results: SimulationResultBuilder):
         )
         sim_results.add_settled_expired_market(expired_market)
 
+    # todo: liquidation 
+
+    free_collateral = []
+    ch_idx = []
+
+    # set init cache
+    for i, ch in enumerate(chs):
+        for sid in ch.subaccounts:
+            chu = ClearingHouseUser(ch, subaccount_id=sid, use_cache=False)
+            await chu.set_cache()
+            cache = chu.CACHE
+            break 
+        break 
+
+    # most free collateral clearing house is the liquidator 
+    # (tmp soln -- ideally would like to mint a new 'liq' user)
+    user_chs = {}
+    for i, ch in enumerate(chs):
+        user_chs[i] = ch
+
+        for sid in ch.subaccounts:
+            chu = ClearingHouseUser(ch, subaccount_id=sid, use_cache=False)
+            account = await chu.get_user()
+            cache['user'] = account # update cache to look at the correct user account
+            chu.use_cache = True
+            await chu.set_cache(cache)
+            fc = await chu.get_free_collateral()
+
+            ch_idx.append((i, sid))
+            free_collateral.append(fc)
+
+    liq_idx, liq_subacc = ch_idx[np.argmax(free_collateral)]
+
+    liquidator = Liquidator(
+        user_chs, 
+        n_markets, 
+        n_spot_markets, 
+        liquidator_index=liq_idx,
+        send_ix_fcn=_send_ix, 
+        liquidator_subacc_id=liq_subacc,
+    )
+
+    print('attempting liquidation...')
+    await liquidator.liquidate_loop()
+
+    # todo: remove IF stakes
+    # todo: withdraw
 
     for perp_market_idx in range(n_markets):
         success = False
