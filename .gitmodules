@@ -1,3 +1,6 @@
 [submodule "driftpy"]
 	path = driftpy
 	url = https://github.com/drift-labs/driftpy.git
+[submodule "drift-sim"]
+	path = drift-sim
+	url = https://github.com/drift-labs/drift-sim.git
