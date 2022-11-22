@@ -31,11 +31,13 @@ from driftpy.constants.numeric_constants import (
     SPOT_BALANCE_PRECISION
 )
 from solana.rpc import commitment
+from spl.token.instructions import get_associated_token_address
 import pprint
 from driftpy.clearing_house import is_available
 from termcolor import colored
 import pprint
-from slack import Slack, SimulationResultBuilder, ExpiredMarket, ResultingMarket
+from slack import Slack, SimulationResultBuilder, ExpiredMarket
+
 import datetime as dt
 
 async def view_logs(
@@ -73,6 +75,12 @@ def load_subaccounts(chs):
             active_chs.append(ch)
     return active_chs
 
+async def get_insurance_fund_balance(connection: AsyncClient, spot_market: SpotMarket):
+    balance = await connection.get_token_account_balance(spot_market.insurance_fund.vault)
+    if 'error' in balance:
+        raise Exception(balance)
+    return balance['result']['value']['uiAmount']
+
 async def clone_close(sim_results: SimulationResultBuilder):
     config = configs['mainnet']
     url = 'http://127.0.0.1:8899'
@@ -86,6 +94,20 @@ async def clone_close(sim_results: SimulationResultBuilder):
     chs = load_subaccounts(chs)
     state = await get_state_account(state_ch.program)
     n_markets, n_spot_markets = state.number_of_markets, state.number_of_spot_markets
+
+    sim_slot = (await connection.get_slot())['result']
+    sim_results.set_start_slot(sim_slot)
+
+    # record stats pre-closing
+    for i in range(n_markets):
+        perp_market = await get_perp_market_account(program, i)
+        sim_results.add_initial_perp_market(perp_market)
+    for i in range(n_spot_markets):
+        spot_market = await get_spot_market_account(program, i)
+        insurance_fund_balance = await get_insurance_fund_balance(connection, spot_market)
+        print(f" {i}: {insurance_fund_balance}")
+        sim_results.add_initial_spot_market(insurance_fund_balance, spot_market)
+
 
     # update state 
     await state_ch.update_perp_auction_duration(0)
@@ -122,8 +144,8 @@ async def clone_close(sim_results: SimulationResultBuilder):
     # verify 
     if len(_sigs) > 0:
         await connection.confirm_transaction(_sigs[-1])
-    market = await get_perp_market_account(state_ch.program, perp_market_idx)
-    print("market.amm.user_lp_shares == 0: ", market.amm.user_lp_shares == 0)
+    perp_market = await get_perp_market_account(state_ch.program, perp_market_idx)
+    print("market.amm.user_lp_shares == 0: ", perp_market.amm.user_lp_shares == 0)
 
     # fully expire market
     print('waiting for expiry...')
@@ -143,20 +165,20 @@ async def clone_close(sim_results: SimulationResultBuilder):
         sig = await state_ch.settle_expired_market(i)
         await provider.connection.confirm_transaction(sig, commitment.Finalized)
 
-        market = await get_perp_market_account(program, i)
+        perp_market = await get_perp_market_account(program, i)
         print(
             f'market {i} expiry_price vs twap/price', 
-            market.status,
-            market.expiry_price, 
-            market.amm.historical_oracle_data.last_oracle_price_twap,
-            market.amm.historical_oracle_data.last_oracle_price
+            perp_market.status,
+            perp_market.expiry_price, 
+            perp_market.amm.historical_oracle_data.last_oracle_price_twap,
+            perp_market.amm.historical_oracle_data.last_oracle_price
         )
         expired_market = ExpiredMarket(
             i,
-            market.status,
-            market.expiry_price / PRICE_PRECISION,
-            market.amm.historical_oracle_data.last_oracle_price_twap / PRICE_PRECISION,
-            market.amm.historical_oracle_data.last_oracle_price / PRICE_PRECISION
+            perp_market.status,
+            perp_market.expiry_price / PRICE_PRECISION,
+            perp_market.amm.historical_oracle_data.last_oracle_price_twap / PRICE_PRECISION,
+            perp_market.amm.historical_oracle_data.last_oracle_price / PRICE_PRECISION
         )
         sim_results.add_settled_expired_market(expired_market)
 
@@ -214,46 +236,38 @@ async def clone_close(sim_results: SimulationResultBuilder):
                 print(position)
 
     for i in range(n_markets):
-        market = await get_perp_market_account(program, i)
+        perp_market = await get_perp_market_account(program, i)
         print(
             f'market {i} info:',
             "\n\t market.amm.total_fee_minus_distributions:", 
-            market.amm.total_fee_minus_distributions,
+            perp_market.amm.total_fee_minus_distributions,
             "\n\t net baa, net unsettled, (sum):", 
-            market.amm.base_asset_amount_with_amm,
-            market.amm.base_asset_amount_with_unsettled_lp,
-            market.amm.base_asset_amount_with_amm + market.amm.base_asset_amount_with_unsettled_lp,
+            perp_market.amm.base_asset_amount_with_amm,
+            perp_market.amm.base_asset_amount_with_unsettled_lp,
+            perp_market.amm.base_asset_amount_with_amm + perp_market.amm.base_asset_amount_with_unsettled_lp,
             '\n\t net long/short',
-            market.amm.base_asset_amount_long, 
-            market.amm.base_asset_amount_short, 
+            perp_market.amm.base_asset_amount_long, 
+            perp_market.amm.base_asset_amount_short, 
             '\n\t user lp shares',
-            market.amm.user_lp_shares, 
+            perp_market.amm.user_lp_shares, 
             '\n\t cumulative_social_loss / funding:',
-            market.amm.total_social_loss, 
-            market.amm.cumulative_funding_rate_long, 
-            market.amm.cumulative_funding_rate_short, 
-            market.amm.last_funding_rate_long, 
-            market.amm.last_funding_rate_short, 
-            '\n\t fee pool:', market.amm.fee_pool.scaled_balance, 
-            '\n\t pnl pool:', market.pnl_pool.scaled_balance
+            perp_market.amm.total_social_loss, 
+            perp_market.amm.cumulative_funding_rate_long, 
+            perp_market.amm.cumulative_funding_rate_short, 
+            perp_market.amm.last_funding_rate_long, 
+            perp_market.amm.last_funding_rate_short, 
+            '\n\t fee pool:', perp_market.amm.fee_pool.scaled_balance, 
+            '\n\t pnl pool:', perp_market.pnl_pool.scaled_balance
         )
-        resulting_market = ResultingMarket(
-            i,
-            market.amm.total_fee_minus_distributions / QUOTE_PRECISION,
-            market.amm.base_asset_amount_with_amm / BASE_PRECISION,
-            market.amm.base_asset_amount_with_unsettled_lp / BASE_PRECISION,
-            market.amm.base_asset_amount_long / BASE_PRECISION,
-            market.amm.base_asset_amount_short / BASE_PRECISION,
-            market.amm.user_lp_shares/ AMM_RESERVE_PRECISION,
-            market.amm.total_social_loss / QUOTE_PRECISION,
-            market.amm.cumulative_funding_rate_long / FUNDING_RATE_PRECISION,
-            market.amm.cumulative_funding_rate_short / FUNDING_RATE_PRECISION,
-            market.amm.last_funding_rate_long / FUNDING_RATE_PRECISION,
-            market.amm.last_funding_rate_short / FUNDING_RATE_PRECISION,
-            market.amm.fee_pool.scaled_balance / QUOTE_PRECISION,
-            market.pnl_pool.scaled_balance / SPOT_BALANCE_PRECISION
-        )
-        sim_results.add_resulting_market(resulting_market)
+        sim_results.add_final_perp_market(perp_market)
+
+    print(f"spot market if after:")
+    for i in range(n_spot_markets):
+        spot_market = await get_spot_market_account(program, i)
+        insurance_fund_balance = await get_insurance_fund_balance(connection, spot_market)
+        print(f" {i}: {insurance_fund_balance}")
+        sim_results.add_final_spot_market(insurance_fund_balance, spot_market)
+    
     print('---')
 
     sim_results.set_end_time(dt.datetime.utcnow())

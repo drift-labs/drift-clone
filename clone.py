@@ -212,7 +212,7 @@ async def scrape():
         addrs += k_addrs
         types += k_types
 
-    # include vaults 
+    # include vaults
     for i in range(n_spots): 
         vault_pk = get_spot_market_vault_public_key(
             ch.program_id, i
@@ -222,6 +222,11 @@ async def scrape():
         )
         addrs.append(vault_pk)
         addrs.append(if_pk)
+
+        # accounts for spot token SPL accounts
+        spot_market_account = await get_spot_market_account(ch.program, i)
+        addrs.append(spot_market_account.insurance_fund.vault)
+        addrs.append(spot_market_account.mint)
     
     print(f'found {len(addrs)} accounts...')
 
@@ -245,20 +250,15 @@ async def scrape():
 
     # pop off the vault addrs + save
     for i in list(range(n_spots))[::-1]:
-        addr = addrs.pop(-1)
-        acc_info = account_infos.pop(-1)
-        save_account_info(
-            accounts_dir/(str(addr) + '.json'), 
-            acc_info, 
-            str(addr)
-        )
-        addr = addrs.pop(-1)
-        acc_info = account_infos.pop(-1)
-        save_account_info(
-            accounts_dir/(str(addr) + '.json'), 
-            acc_info, 
-            str(addr)
-        )
+        # 4 accounts per spot market: spot vault, IF, IF vault, spot mint
+        for j in range(4):
+            addr = addrs.pop(-1)
+            acc_info = account_infos.pop(-1)
+            save_account_info(
+                accounts_dir/(str(addr) + '.json'), 
+                acc_info, 
+                str(addr)
+            )
 
     print("editing and saving accounts...")
     type_accounts = {}
