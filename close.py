@@ -192,7 +192,6 @@ async def clone_close(sim_results: SimulationResultBuilder):
         sim_results.add_settled_expired_market(expired_market)
 
     # todo: liquidation 
-
     free_collateral = []
     ch_idx = []
 
@@ -236,7 +235,49 @@ async def clone_close(sim_results: SimulationResultBuilder):
     print('attempting liquidation...')
     await liquidator.liquidate_loop()
 
-    # todo: remove IF stakes
+    # remove if stakes 
+    print('removing IF stakes...')
+    async def remove_if_stake(clearing_house: ClearingHouse, market_index):
+        spot = await get_spot_market_account(clearing_house.program, market_index)
+        total_shares = spot.insurance_fund.total_shares
+        if_stake = await get_if_stake_account(clearing_house.program, clearing_house.authority, market_index)
+        n_shares = if_stake.if_shares
+
+        conn = clearing_house.program.provider.connection
+        vault_pk = get_insurance_fund_vault_public_key(clearing_house.program_id, market_index)
+        v_amount = int((await conn.get_token_account_balance(vault_pk))['result']['value']['amount'])
+
+        print(
+            f'vault_amount: {v_amount} n_shares: {n_shares} total_shares: {total_shares}'
+        )
+        withdraw_amount = int(v_amount * n_shares / total_shares)
+
+        ix1 = await clearing_house.get_request_remove_insurance_fund_stake_ix(
+            market_index, 
+            withdraw_amount
+        )
+        ix2 = await clearing_house.get_remove_insurance_fund_stake_ix(
+            market_index, 
+        )
+        sig = await clearing_house.send_ixs([ix1, ix2])
+
+        return sig
+
+    for i in range(n_spot_markets):
+        for ch in user_chs.values():
+            if_position_pk = get_insurance_fund_stake_public_key(
+                ch.program_id, ch.authority, i
+            )
+            resp = await ch.program.provider.connection.get_account_info(
+                if_position_pk
+            )
+            if resp["result"]["value"] is None: continue # if stake doesnt exist 
+
+            if_account = await get_if_stake_account(ch.program, ch.authority, i)
+            if if_account.if_shares > 0:
+                print('removing IF...')
+                await remove_if_stake(ch, i)
+
     # todo: withdraw
 
     for perp_market_idx in range(n_markets):

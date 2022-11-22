@@ -225,7 +225,6 @@ async def scrape():
 
         # # accounts for spot token SPL accounts -- already included in above (if_pk)
         spot_market_account = await get_spot_market_account(ch.program, i)
-        # addrs.append(spot_market_account.insurance_fund.vault)
         addrs.append(spot_market_account.mint)
     
     print(f'found {len(addrs)} accounts...')
@@ -251,7 +250,7 @@ async def scrape():
     # pop off the vault addrs + save
     for i in list(range(n_spots))[::-1]:
         # 4 accounts per spot market: spot vault, IF, IF vault, spot mint
-        for j in range(4):
+        for j in range(3):
             addr = addrs.pop(-1)
             acc_info = account_infos.pop(-1)
             save_account_info(
