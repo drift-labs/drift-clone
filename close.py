@@ -251,6 +251,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
             f'vault_amount: {v_amount} n_shares: {n_shares} total_shares: {total_shares}'
         )
         withdraw_amount = int(v_amount * n_shares / total_shares)
+        print(f'withdrawing {withdraw_amount/QUOTE_PRECISION}...')
 
         ix1 = await clearing_house.get_request_remove_insurance_fund_stake_ix(
             market_index, 
@@ -262,6 +263,9 @@ async def clone_close(sim_results: SimulationResultBuilder):
         sig = await clearing_house.send_ixs([ix1, ix2])
 
         return sig
+
+    accounts = await ch.program.account['InsuranceFundStake'].all()
+    print("n insurance fund stakes", len(accounts))
 
     for i in range(n_spot_markets):
         for ch in user_chs.values():
@@ -275,8 +279,17 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
             if_account = await get_if_stake_account(ch.program, ch.authority, i)
             if if_account.if_shares > 0:
-                print('removing IF...')
-                await remove_if_stake(ch, i)
+                from spl.token.instructions import create_associated_token_account
+                spot_market = await get_spot_market_account(ch.program, i)
+
+                ix = create_associated_token_account(ch.authority, ch.authority, spot_market.mint)
+                await ch.send_ixs(ix)
+
+                ata = get_associated_token_address(ch.authority, spot_market.mint)
+                ch.spot_market_atas[i] = ata
+
+                sig = await remove_if_stake(ch, i)
+                await connection.confirm_transaction(sig, commitment.Confirmed)
 
     # todo: withdraw
 

@@ -214,12 +214,8 @@ async def scrape():
 
     # include vaults
     for i in range(n_spots): 
-        vault_pk = get_spot_market_vault_public_key(
-            ch.program_id, i
-        )
-        if_pk = get_insurance_fund_vault_public_key(
-            ch.program_id, i
-        )
+        vault_pk = get_spot_market_vault_public_key(ch.program_id, i)
+        if_pk = get_insurance_fund_vault_public_key(ch.program_id, i)
         addrs.append(vault_pk)
         addrs.append(if_pk)
 
@@ -265,7 +261,6 @@ async def scrape():
         "SpotMarket",
         "PerpMarket",
         "Oracles", 
-        "InsuranceFundStake",
         "SerumV3FulfillmentConfig",
     ]
     for i in range(len(types)):
@@ -367,9 +362,50 @@ async def scrape():
                 str(new_addr)
             ) 
 
-    # for k, v in auths_to_subacc.items(): 
-    #     if 0 not in v: 
-    #         print(k, v)
+    # same thing with insurance fund
+    ty = "InsuranceFundStake"
+    if_path = init_account_dir(ty)
+    accounts = type_accounts[ty]
+    for account_dict in accounts:
+        obj: InsuranceFundStake = account_dict.pop('decoded_data')
+        addr: PublicKey = account_dict.pop('addr')
+        old_auth = str(obj.authority)
+        assert old_auth in auths_to_kps
+        new_auth: Keypair = auths_to_kps[old_auth]
+
+        obj.authority = new_auth.public_key
+        new_addr = get_insurance_fund_stake_public_key(
+            ch.program_id, new_auth.public_key, obj.market_index
+        )
+
+        account_dict['data'][0] = encode(ch, ty, obj)
+        save_account_info(
+            if_path/(str(new_addr) + '.json'), 
+            account_dict, 
+            str(new_addr)
+        ) 
+        
+        # # also clone their ATA 
+        # from spl.token.instructions import get_associated_token_address
+        # from spl.token._layouts import ACCOUNT_LAYOUT
+        # spot_market = await get_spot_market_account(ch.program, obj.market_index)
+        # spot_mint = PublicKey(spot_market.mint)
+
+        # old_ata = get_associated_token_address(PublicKey(old_auth), spot_mint)
+        # acc_info = (await connection.get_account_info(old_ata))['result']['value']
+        # new_ata = get_associated_token_address(new_auth.public_key, spot_mint)
+
+        # obj = acc_info['data']
+        # obj = ACCOUNT_LAYOUT.parse(obj[0].encode('UTF-8'))
+        # obj.owner = bytes(new_auth.public_key)
+        # breakpoint()
+        # acc_info['data'][0] = ACCOUNT_LAYOUT.build(obj)
+
+        # save_account_info(
+        #     if_path/(str(new_ata) + '.json'), 
+        #     acc_info, 
+        #     str(new_ata)
+        # )
 
     print(
         n_users, 
