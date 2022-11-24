@@ -221,8 +221,11 @@ async def clone_close(sim_results: SimulationResultBuilder):
             ch_idx.append((i, sid))
             free_collateral.append(fc)
 
-    liq_idx, liq_subacc = ch_idx[np.argmax(free_collateral)]
+    liq_idx0 = np.argmax(free_collateral)
+    liq_idx0, liq_idx1 = np.argsort(free_collateral)[::-1][:2]
 
+    print('attempting liquidation round 1...')
+    liq_idx, liq_subacc = ch_idx[liq_idx0]
     liquidator = Liquidator(
         user_chs, 
         n_markets, 
@@ -231,8 +234,19 @@ async def clone_close(sim_results: SimulationResultBuilder):
         send_ix_fcn=_send_ix, 
         liquidator_subacc_id=liq_subacc,
     )
+    await liquidator.liquidate_loop()
 
-    print('attempting liquidation...')
+    # need to account for liq-ing the liquidator
+    print('attempting liquidation round 2...')
+    liq_idx, liq_subacc = ch_idx[liq_idx1]
+    liquidator = Liquidator(
+        user_chs, 
+        n_markets, 
+        n_spot_markets, 
+        liquidator_index=liq_idx,
+        send_ix_fcn=_send_ix, 
+        liquidator_subacc_id=liq_subacc,
+    )
     await liquidator.liquidate_loop()
 
     # remove if stakes 
@@ -305,21 +319,26 @@ async def clone_close(sim_results: SimulationResultBuilder):
         sim_results.add_total_users(n_users)
 
         while not success:
+            if attempt > 10: 
+                sys.exit("something is wrong...") 
+
             attempt += 1
             success = True
             i = 0
             routines = []
+            ids = []
 
             print(colored(f' =>> market {i}: settle attempt {attempt}', "blue"))
-            for ch in chs:
+            for user_i, ch in enumerate(chs):
                 for sid in ch.subaccounts:
                     position = await ch.get_user_position(perp_market_idx, sid)
                     if position is None:
                         i += 1
                         continue
                     routines.append(ch.settle_pnl(ch.authority, perp_market_idx, sid))
+                    ids.append((position, user_i, sid))
 
-            for routine in routines:
+            for (position, user_i, sid), routine in zip(ids, routines):
                 try:
                     sig = await routine
                     settle_sigs.append(sig)
@@ -328,6 +347,9 @@ async def clone_close(sim_results: SimulationResultBuilder):
                     sim_results.add_settle_user_success()
                 except Exception as e: 
                     success = False
+                    if attempt > 0:
+                        print(position, user_i, sid)
+
                     print(f'settled failed... {i}/{n_users}')
                     sim_results.add_settle_user_fail(e)
                     pprint.pprint(e)

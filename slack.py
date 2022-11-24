@@ -179,42 +179,42 @@ class SimulationResultBuilder:
     def add_final_spot_market(self, insurance_fund_balance: str, market: SpotMarket):
         self.final_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, market))
 
-    def print_perp_markets(self, markets: List[PerpMarketTuple]) -> str:
+    def print_perp_markets(self, markets: List[PerpMarketTuple], final_markets) -> str:
         msg = ""
-        for market in markets:
+        for market, f_market in zip(markets, final_markets):
             msg += f" Perp Market {market.market_idx}\n"
-            msg += f"  Total fee minus distributions: {market.total_fee_minus_distributions}\n"
-            msg += f"  Base asset amount with AMM:    {market.base_asset_amount_with_amm}\n"
-            msg += f"  Base asset amount with LP:     {market.base_asset_amount_with_unsettled_lp}\n"
-            msg += f"  Base asset amount long:        {market.base_asset_amount_long}\n"
-            msg += f"  Base asset amount short:       {market.base_asset_amount_short}\n"
-            msg += f"  User LP shares:                {market.user_lp_shares}\n"
-            msg += f"  Total social loss:             {market.total_social_loss}\n"
-            msg += f"  Cumulative funding rate long:  {market.cumulative_funding_rate_long}\n"
-            msg += f"  Cumulative funding rate short: {market.cumulative_funding_rate_short}\n"
-            msg += f"  Last funding rate long:        {market.last_funding_rate_long}\n"
-            msg += f"  Last funding rate short:       {market.last_funding_rate_short}\n"
-            msg += f"  Fee pool:                      {market.fee_pool}\n"
-            msg += f"  Pnl pool:                      {market.pnl_pool}\n"
+            msg += f"  Total fee minus distributions: {market.total_fee_minus_distributions} -> {f_market.total_fee_minus_distributions}\n"
+            msg += f"  Base asset amount with AMM:    {market.base_asset_amount_with_amm} -> {f_market.base_asset_amount_with_amm}\n"
+            msg += f"  Base asset amount with LP:     {market.base_asset_amount_with_unsettled_lp} -> {f_market.base_asset_amount_with_unsettled_lp}\n"
+            msg += f"  Base asset amount long:        {market.base_asset_amount_long} -> {f_market.base_asset_amount_long}\n"
+            msg += f"  Base asset amount short:       {market.base_asset_amount_short} -> {f_market.base_asset_amount_short}\n"
+            msg += f"  User LP shares:                {market.user_lp_shares} -> {f_market.user_lp_shares}\n"
+            msg += f"  Total social loss:             {market.total_social_loss} -> {f_market.total_social_loss}\n"
+            msg += f"  Cumulative funding rate long:  {market.cumulative_funding_rate_long} -> {f_market.cumulative_funding_rate_long}\n"
+            msg += f"  Cumulative funding rate short: {market.cumulative_funding_rate_short} -> {f_market.cumulative_funding_rate_short}\n"
+            msg += f"  Last funding rate long:        {market.last_funding_rate_long} -> {f_market.last_funding_rate_long}\n"
+            msg += f"  Last funding rate short:       {market.last_funding_rate_short} -> {f_market.last_funding_rate_short}\n"
+            msg += f"  Fee pool:                      {market.fee_pool} -> {f_market.fee_pool}\n"
+            msg += f"  Pnl pool:                      {market.pnl_pool} -> {f_market.pnl_pool}\n"
         return msg
 
-    def print_spot_markets(self, markets: List[SpotMarketTuple]) -> str:
+    def print_spot_markets(self, markets: List[SpotMarketTuple], f_markets) -> str:
         msg = ""
-        for market in markets:
+        for market, f_market in zip(markets, f_markets):
             msg += f" Spot Market {market.market_idx}\n"
-            msg += f"  Revenue pool:                  {market.revenue_pool}\n"
-            msg += f"  Spot fee pool:                 {market.spot_fee_pool}\n"
-            msg += f"  Insurance fund balance:        {market.insurance_fund_balance}\n"
-            msg += f"  Total spot fee:                {market.total_spot_fee}\n"
-            msg += f"  Deposit balance:               {market.deposit_balance}\n"
-            msg += f"  Borrow balance:                {market.borrow_balance}\n"
-            msg += f"  Cumulative deposit interest:   {market.cumulative_deposit_interest}\n"
-            msg += f"  Cumulative borrow interest:    {market.cumulative_borrow_interest}\n"
-            msg += f"  Total social loss:             {market.total_social_loss}\n"
-            msg += f"  Total quote social loss:       {market.total_quote_social_loss}\n"
-            msg += f"  Liquidator fee:                {market.liquidator_fee}\n"
-            msg += f"  Insurance fund liquidation fee:{market.if_liquidation_fee}\n"
-            msg += f"  Status:                        {market.status}\n"
+            msg += f"  Revenue pool:                  {market.revenue_pool} -> {f_market.revenue_pool}\n"
+            msg += f"  Spot fee pool:                 {market.spot_fee_pool} -> {f_market.spot_fee_pool}\n"
+            msg += f"  Insurance fund balance:        {market.insurance_fund_balance} -> {f_market.insurance_fund_balance}\n"
+            msg += f"  Total spot fee:                {market.total_spot_fee} -> {f_market.total_spot_fee}\n"
+            msg += f"  Deposit balance:               {market.deposit_balance} -> {f_market.deposit_balance}\n"
+            msg += f"  Borrow balance:                {market.borrow_balance} -> {f_market.borrow_balance}\n"
+            msg += f"  Cumulative deposit interest:   {market.cumulative_deposit_interest} -> {f_market.cumulative_deposit_interest}\n"
+            msg += f"  Cumulative borrow interest:    {market.cumulative_borrow_interest} -> {f_market.cumulative_borrow_interest}\n"
+            msg += f"  Total social loss:             {market.total_social_loss} -> {f_market.total_social_loss}\n"
+            msg += f"  Total quote social loss:       {market.total_quote_social_loss} -> {f_market.total_quote_social_loss}\n"
+            msg += f"  Liquidator fee:                {market.liquidator_fee} -> {f_market.liquidator_fee}\n"
+            msg += f"  Insurance fund liquidation fee:{market.if_liquidation_fee} -> {f_market.if_liquidation_fee}\n"
+            msg += f"  Status:                        {market.status} -> {f_market.status}\n"
         return msg
 
 
@@ -242,25 +242,32 @@ class SimulationResultBuilder:
                 msg += f"  {i}: {e}\n"
         msg += '```\n'
 
-        msg += f"\n*Initial perp market states:*\n"
+        msg += f"\n*Perp Market Metrics:*\n"
         msg += '```\n'
-        msg += self.print_perp_markets(self.initial_perp_markets)
-        msg += '```\n'
-
-        msg += f"\n*Final perp market states:*\n"
-        msg += '```\n'
-        msg += self.print_perp_markets(self.final_perp_markets)
+        msg += self.print_perp_markets(self.initial_perp_markets, self.final_perp_markets)
         msg += '```\n'
 
-        msg += f"\n*Initial spot market states:*\n"
+        msg += f"\n*Spot Market Metrics:*\n"
         msg += '```\n'
-        msg += self.print_spot_markets(self.initial_spot_markets)
+        msg += self.print_spot_markets(self.initial_spot_markets, self.final_spot_markets)
         msg += '```\n'
+        
+        # # need to update deposits
+        # msg += f"\n*Final State Invariants:*\n"
+        # msg += '```\n'
+        # total_market_money = 0
+        # for market in range(self.final_perp_markets):
+        #     total_market_money += market.amm.fee_pool.scaled_balance + market.pnl_pool.scaled_balance
 
-        msg += f"\n*Final spot market states:*\n"
-        msg += '```\n'
-        msg += self.print_spot_markets(self.final_spot_markets)
-        msg += '```\n'
+        # quote_spot: SpotMarket = self.final_spot_markets[0]
+        # total_market_money = quote_spot.revenue_pool.scaled_balance + total_market_money
+
+        # msg += f'total market money: {total_market_money}'
+        # msg += f'spot market 0 balance: {quote_spot.deposit_balance}'
+        # msg += f'market $ == spot deposit $'
+
+        # msg += '```\n'
+
         return msg
 
     def post_result(self):
