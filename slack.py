@@ -270,6 +270,11 @@ class SimulationResultBuilder:
 
         return msg
 
+    def post_fail(self, msg):
+        print(msg)
+        if self.slack.can_send_messages():
+            self.slack.send_message(msg)
+
     def post_result(self):
         msg = self.build_message()
         print(msg)

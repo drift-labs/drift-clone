@@ -320,7 +320,8 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
         while not success:
             if attempt > 10: 
-                sys.exit("something is wrong...") 
+                sim_results.post_fail('something went wrong during settle expired position...')
+                return 
 
             attempt += 1
             success = True
@@ -457,6 +458,8 @@ async def main():
 
     try:
         await clone_close(sim_results)
+    except Exception as e: 
+        sim_results.post_fail(f'something went wrong... : {e}')
     finally:
         validator.stop()
 
