@@ -137,7 +137,12 @@ async def clone_close(sim_results: SimulationResultBuilder):
         sig = await state_ch.update_spot_market_expiry(i, dtime + seconds_time)
         sigs.append(sig)
 
-    # todo: repay withdraws
+    n_users = 0
+    for ch in chs:
+        for sid in ch.subaccounts:
+            n_users += 1
+    sim_results.add_total_users(n_users)
+
     # close out lps
     _sigs = []
     ch: ClearingHouse
@@ -305,21 +310,13 @@ async def clone_close(sim_results: SimulationResultBuilder):
                 sig = await remove_if_stake(ch, i)
                 await connection.confirm_transaction(sig, commitment.Confirmed)
 
-    # todo: withdraw
-
     for perp_market_idx in range(n_markets):
         success = False
         attempt = -1
         settle_sigs = []
 
-        n_users = 0
-        for ch in chs:
-            for sid in ch.subaccounts:
-                n_users += 1
-        sim_results.add_total_users(n_users)
-
         while not success:
-            if attempt > 10: 
+            if attempt > 5: 
                 sim_results.post_fail('something went wrong during settle expired position...')
                 return 
 
@@ -328,7 +325,6 @@ async def clone_close(sim_results: SimulationResultBuilder):
             i = 0
             routines = []
             ids = []
-
             print(colored(f' =>> market {i}: settle attempt {attempt}', "blue"))
             for user_i, ch in enumerate(chs):
                 for sid in ch.subaccounts:
@@ -361,44 +357,92 @@ async def clone_close(sim_results: SimulationResultBuilder):
         if len(settle_sigs) > 0:
             await connection.confirm_transaction(settle_sigs[-1])
 
+    print('withdrawing...')
+    sigs = []
+    for spot_market_index in range(n_spot_markets):
+        success = False
+        attempt = -1
+        spot_market = await get_spot_market_account(program, spot_market_index)
+
+        while not success and attempt < 0: # only try once for rn 
+            attempt += 1
+            success = True
+            user_withdraw_count = 0
+
+            print(colored(f' =>> spot market {spot_market_index}: withdraw attempt {attempt}', "blue"))
+            ch: ClearingHouse
+            for _, ch in enumerate(chs):                
+                for sid in ch.subaccounts:
+                    position = await ch.get_user_spot_position(spot_market_index, sid)
+                    if position is None: 
+                        user_withdraw_count += 1
+                        continue
+                    
+                    if str(position.balance_type) == "SpotBalanceType.Borrow()":
+                        print('skipping borrow...')
+                        user_withdraw_count += 1
+                        continue
+
+                    # # balance: int, spot_market: SpotMarket, balance_type: SpotBalanceType
+                    from driftpy.math.spot_market import get_token_amount
+                    spot_market = await get_spot_market_account(program, spot_market_index)
+                    token_amount = int(get_token_amount(
+                        position.scaled_balance, 
+                        spot_market,
+                        position.balance_type
+                    ))
+                    print('token amount', token_amount)
+
+                    from spl.token.instructions import create_associated_token_account
+                    if spot_market_index not in ch.spot_market_atas:
+                        ix = create_associated_token_account(ch.authority, ch.authority, spot_market.mint)
+                        await ch.send_ixs(ix)
+                        ata = get_associated_token_address(ch.authority, spot_market.mint)
+                        ch.spot_market_atas[spot_market_index] = ata
+
+                    # withdraw all of collateral
+                    ix = await ch.get_withdraw_collateral_ix(
+                        int(1e19),
+                        spot_market_index, 
+                        ch.spot_market_atas[spot_market_index],
+                        True, 
+                        user_id=sid,
+                    )
+                    (failed, sig, _) = await _send_ix(ch, ix, 'withdraw', {})
+
+                    if not failed:
+                        user_withdraw_count += 1
+                        print(colored(f'withdraw success: {user_withdraw_count}/{n_users}', 'green'))
+                        sigs.append(sig)
+                    else: 
+                        print(colored(f'withdraw failed: {user_withdraw_count}/{n_users}', 'red'))
+                        success = False
+                    print('---')
+
+    print('confirming...') 
+    if len(sigs) > 0:
+        await connection.confirm_transaction(sigs[-1])    
+
     for ch in chs:
         for sid in ch.subaccounts:
             for i in range(n_markets):
                 position = await ch.get_user_position(i, sid)
                 if position is None: continue
                 print(position)
+            
+            for i in range(n_spot_markets):
+                position = await ch.get_user_spot_position(i, sid)
+                if position is None: continue
+                print(position)
 
     for i in range(n_markets):
         perp_market = await get_perp_market_account(program, i)
-        print(
-            f'market {i} info:',
-            "\n\t market.amm.total_fee_minus_distributions:", 
-            perp_market.amm.total_fee_minus_distributions,
-            "\n\t net baa, net unsettled, (sum):", 
-            perp_market.amm.base_asset_amount_with_amm,
-            perp_market.amm.base_asset_amount_with_unsettled_lp,
-            perp_market.amm.base_asset_amount_with_amm + perp_market.amm.base_asset_amount_with_unsettled_lp,
-            '\n\t net long/short',
-            perp_market.amm.base_asset_amount_long, 
-            perp_market.amm.base_asset_amount_short, 
-            '\n\t user lp shares',
-            perp_market.amm.user_lp_shares, 
-            '\n\t cumulative_social_loss / funding:',
-            perp_market.amm.total_social_loss, 
-            perp_market.amm.cumulative_funding_rate_long, 
-            perp_market.amm.cumulative_funding_rate_short, 
-            perp_market.amm.last_funding_rate_long, 
-            perp_market.amm.last_funding_rate_short, 
-            '\n\t fee pool:', perp_market.amm.fee_pool.scaled_balance, 
-            '\n\t pnl pool:', perp_market.pnl_pool.scaled_balance
-        )
         sim_results.add_final_perp_market(perp_market)
 
     print(f"spot market if after:")
     for i in range(n_spot_markets):
         spot_market = await get_spot_market_account(program, i)
         insurance_fund_balance = await get_insurance_fund_balance(connection, spot_market)
-        print(f" {i}: {insurance_fund_balance}")
         sim_results.add_final_spot_market(insurance_fund_balance, spot_market)
     
     print('---')
@@ -454,12 +498,10 @@ async def main():
 
     validator = LocalValidator(script_file)
     validator.start() # sometimes you gotta wait a bit for it to startup
-    time.sleep(10)
+    time.sleep(5)
 
     try:
         await clone_close(sim_results)
-    except Exception as e: 
-        sim_results.post_fail(f'something went wrong... : {e}')
     finally:
         validator.stop()
 

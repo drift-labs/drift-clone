@@ -398,7 +398,6 @@ async def scrape():
         # obj = acc_info['data']
         # obj = ACCOUNT_LAYOUT.parse(obj[0].encode('UTF-8'))
         # obj.owner = bytes(new_auth.public_key)
-        # breakpoint()
         # acc_info['data'][0] = ACCOUNT_LAYOUT.build(obj)
 
         # save_account_info(
