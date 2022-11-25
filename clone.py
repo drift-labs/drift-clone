@@ -244,9 +244,37 @@ async def scrape():
             return
 
     # pop off the vault addrs + save
-    for i in list(range(n_spots))[::-1]:
-        # 4 accounts per spot market: spot vault, IF, IF vault, spot mint
-        for j in range(3):
+    spot_count = 0
+    for i in list(range(n_spots)):
+
+        addr = addrs.pop(-1)
+        acc_info = account_infos.pop(-1)
+
+        if spot_count != 0: # this is SOL -- not a mint -- we care about usdc
+            # allow state_kp to mint more
+            from spl.token._layouts import MINT_LAYOUT
+            byte_data = base64.b64decode(acc_info['data'][0])
+            byte_data = bytearray(byte_data)
+
+            # set mint authority option = True (32bits = 8 bytes)
+            one = int.to_bytes(1, 4, 'little') 
+            byte_data[:4] = one
+            # set mint authority = state_ch
+            byte_data[4:4+32] = bytes(state_kp.public_key)
+
+            # repack 
+            data = base64.encodebytes(byte_data).decode('utf-8')
+            acc_info['data'][0] = data
+
+        save_account_info(
+            accounts_dir/(str(addr) + '.json'), 
+            acc_info, 
+            str(addr)
+        )
+        spot_count += 1
+
+        # 3 accounts per spot market: spot vault, IF vault
+        for _ in range(2):
             addr = addrs.pop(-1)
             acc_info = account_infos.pop(-1)
             save_account_info(
@@ -254,7 +282,7 @@ async def scrape():
                 acc_info, 
                 str(addr)
             )
-
+    
     print("editing and saving accounts...")
     type_accounts = {}
     do_nothing_types = [
