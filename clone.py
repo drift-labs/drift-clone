@@ -1,4 +1,3 @@
-#%%
 # get all user accounts 
 # get market accounts 
 # save them locally 
@@ -6,7 +5,6 @@
 # run a local validator with accounts preloaded 
 # run close all simulation 
 
-#%%
 import sys
 sys.path.append('driftpy/src/')
 
@@ -246,12 +244,12 @@ async def scrape():
     # pop off the vault addrs + save
     spot_count = 0
     for i in list(range(n_spots)):
-
         addr = addrs.pop(-1)
         acc_info = account_infos.pop(-1)
 
-        if spot_count != 0: # this is SOL -- not a mint -- we care about usdc
-            # allow state_kp to mint more
+        print('cloning mint', addr)
+        # allow state_kp to mint more
+        if spot_count != 0: # this is wSOL so we cant mint from it -- we care about usdc
             from spl.token._layouts import MINT_LAYOUT
             byte_data = base64.b64decode(acc_info['data'][0])
             byte_data = bytearray(byte_data)
@@ -263,7 +261,7 @@ async def scrape():
             byte_data[4:4+32] = bytes(state_kp.public_key)
 
             # repack 
-            data = base64.encodebytes(byte_data).decode('utf-8')
+            data = base64.b64encode(byte_data).decode('utf-8')
             acc_info['data'][0] = data
 
         save_account_info(
@@ -437,8 +435,6 @@ async def scrape():
     print(
         n_users, 
         n_users_stats, 
-        len(list(auths_to_kps.keys())),
-        list(auths_to_subacc.values())
     )
 
     print('setting up validator scripts...')
@@ -457,4 +453,3 @@ if __name__ == '__main__':
     import asyncio
     asyncio.run(scrape())
 
-# %%
