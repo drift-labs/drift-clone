@@ -148,15 +148,19 @@ class SimulationResultBuilder:
 
 
     def spot_market_to_tuple(self, insurance_fund_balance: str, market: SpotMarket) -> SpotMarketTuple:
-        precision = 1*10**market.decimals
+        precision = 10**market.decimals
+
+        from driftpy.math.spot_market import get_token_amount
+        gta = lambda ta: get_token_amount(ta, market, "SpotBalanceType.Deposit()")
+
         return SpotMarketTuple(
             market.market_index,
             market.revenue_pool.scaled_balance / precision,
             market.spot_fee_pool.scaled_balance / precision,
             insurance_fund_balance,
             market.total_spot_fee / precision,
-            market.deposit_balance / precision,
-            market.borrow_balance / precision,
+            gta(market.deposit_balance) / precision,
+            gta(market.borrow_balance) / precision,
             market.cumulative_deposit_interest / SPOT_CUMULATIVE_INTEREST_PRECISION,
             market.cumulative_borrow_interest/ SPOT_CUMULATIVE_INTEREST_PRECISION,
             market.total_social_loss / precision,

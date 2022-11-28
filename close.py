@@ -487,7 +487,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
     print('confirming...') 
     if len(sigs) > 0:
-        await connection.confirm_transaction(sigs[-1])    
+        await connection.confirm_transaction(sigs[-1], commitment=commitment.Finalized)    
 
     n_spot, n_perp = 0, 0
     for ch in chs:
