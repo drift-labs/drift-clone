@@ -259,7 +259,7 @@ class SimulationResultBuilder:
         msg += f"\n*Final State Invariants:*\n"
         msg += '```\n'
         total_market_money = 0
-        for market in range(self.final_perp_markets):
+        for market in self.final_perp_markets:
             total_market_money += market.amm.fee_pool.scaled_balance + market.pnl_pool.scaled_balance
 
         quote_spot: SpotMarket = self.final_spot_markets[0]
