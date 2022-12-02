@@ -151,11 +151,11 @@ class SimulationResultBuilder:
         precision = 10**market.decimals
 
         from driftpy.math.spot_market import get_token_amount
-        gta = lambda ta: get_token_amount(ta, market, "SpotBalanceType.Deposit()")
+        gta = lambda ta: get_token_amount(ta, market, "SpotBalanceType.Deposit()" if ta > 0 else "SpotBalanceType.Borrow()")
 
         return SpotMarketTuple(
             market.market_index,
-            market.revenue_pool.scaled_balance / precision,
+            gta(market.revenue_pool.scaled_balance) / precision,
             market.spot_fee_pool.scaled_balance / precision,
             insurance_fund_balance,
             market.total_spot_fee / precision,
@@ -256,21 +256,20 @@ class SimulationResultBuilder:
         msg += self.print_spot_markets(self.initial_spot_markets, self.final_spot_markets)
         msg += '```\n'
         
-        # # need to update deposits
-        # msg += f"\n*Final State Invariants:*\n"
-        # msg += '```\n'
-        # total_market_money = 0
-        # for market in range(self.final_perp_markets):
-        #     total_market_money += market.amm.fee_pool.scaled_balance + market.pnl_pool.scaled_balance
+        msg += f"\n*Final State Invariants:*\n"
+        msg += '```\n'
+        total_market_money = 0
+        for market in range(self.final_perp_markets):
+            total_market_money += market.amm.fee_pool.scaled_balance + market.pnl_pool.scaled_balance
 
-        # quote_spot: SpotMarket = self.final_spot_markets[0]
-        # total_market_money = quote_spot.revenue_pool.scaled_balance + total_market_money
+        quote_spot: SpotMarket = self.final_spot_markets[0]
+        total_market_money = quote_spot.revenue_pool.scaled_balance + total_market_money
 
-        # msg += f'total market money: {total_market_money}'
-        # msg += f'spot market 0 balance: {quote_spot.deposit_balance}'
-        # msg += f'market $ == spot deposit $'
+        msg += f'total market money: {total_market_money}'
+        msg += f'spot market 0 balance: {quote_spot.deposit_balance}'
+        msg += f'market $ == spot deposit $: {total_market_money == quote_spot.deposit_balance}'
 
-        # msg += '```\n'
+        msg += '```\n'
 
         return msg
 

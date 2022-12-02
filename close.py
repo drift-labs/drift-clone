@@ -506,6 +506,11 @@ async def clone_close(sim_results: SimulationResultBuilder):
     print(n_spot, n_perp)
 
     for i in range(n_markets):
+        await state_ch.update_state_settlement_duration(1)
+        sig = await state_ch.settle_expired_market_pools_to_revenue_pool(i)
+    await connection.confirm_transaction(sig, commitment=commitment.Finalized)    
+
+    for i in range(n_markets):
         perp_market = await get_perp_market_account(program, i)
         sim_results.add_final_perp_market(perp_market)
 
