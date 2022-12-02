@@ -260,10 +260,10 @@ class SimulationResultBuilder:
         msg += '```\n'
         total_market_money = 0
         for market in self.final_perp_markets:
-            total_market_money += market.amm.fee_pool.scaled_balance + market.pnl_pool.scaled_balance
+            total_market_money += market.fee_pool + market.pnl_pool
 
         quote_spot: SpotMarket = self.final_spot_markets[0]
-        total_market_money = quote_spot.revenue_pool.scaled_balance + total_market_money
+        total_market_money = quote_spot.revenue_pool + total_market_money
 
         msg += f'total market money: {total_market_money}'
         msg += f'spot market 0 balance: {quote_spot.deposit_balance}'
