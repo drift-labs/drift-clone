@@ -87,6 +87,12 @@ async def get_insurance_fund_balance(connection: AsyncClient, spot_market: SpotM
         raise Exception(balance)
     return balance['result']['value']['uiAmount']
 
+async def get_spot_vault_balance(connection: AsyncClient, spot_market: SpotMarket):
+    balance = await connection.get_token_account_balance(spot_market.vault)
+    if 'error' in balance:
+        raise Exception(balance)
+    return balance['result']['value']['uiAmount']
+
 async def clone_close(sim_results: SimulationResultBuilder):
     config = configs['mainnet']
     url = 'http://127.0.0.1:8899'
@@ -117,8 +123,9 @@ async def clone_close(sim_results: SimulationResultBuilder):
     for i in range(n_spot_markets):
         spot_market = await get_spot_market_account(program, i)
         insurance_fund_balance = await get_insurance_fund_balance(connection, spot_market)
-        print(f" {i}: {insurance_fund_balance}")
-        sim_results.add_initial_spot_market(insurance_fund_balance, spot_market)
+        spot_vault_balance = await get_spot_vault_balance(connection, spot_market)
+        print(f" {i}: {insurance_fund_balance} {spot_vault_balance}")
+        sim_results.add_initial_spot_market(insurance_fund_balance, spot_vault_balance, spot_market)
 
     # update state 
     await state_ch.update_perp_auction_duration(0)
@@ -503,7 +510,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
                 if position is None: continue
                 n_spot += 1
                 # print(position)
-    print(n_spot, n_perp)
+    print("n (spot, perp) positions:", n_spot, n_perp)
 
     for i in range(n_markets):
         await state_ch.update_state_settlement_duration(1)
@@ -517,7 +524,9 @@ async def clone_close(sim_results: SimulationResultBuilder):
     for i in range(n_spot_markets):
         spot_market = await get_spot_market_account(program, i)
         insurance_fund_balance = await get_insurance_fund_balance(connection, spot_market)
-        sim_results.add_final_spot_market(insurance_fund_balance, spot_market)
+        spot_vault_balance = await get_spot_vault_balance(connection, spot_market)
+
+        sim_results.add_final_spot_market(insurance_fund_balance, spot_vault_balance, spot_market)
     
     print('---')
 

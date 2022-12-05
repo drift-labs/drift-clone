@@ -73,6 +73,7 @@ SpotMarketTuple = namedtuple(
         'market_idx',
         'revenue_pool',
         'spot_fee_pool',
+        'spot_vault_balance',
         'insurance_fund_balance',
         'total_spot_fee',
         'deposit_balance', 
@@ -147,7 +148,7 @@ class SimulationResultBuilder:
         )
 
 
-    def spot_market_to_tuple(self, insurance_fund_balance: str, market: SpotMarket) -> SpotMarketTuple:
+    def spot_market_to_tuple(self, insurance_fund_balance: str, spot_vault_balance: str, market: SpotMarket) -> SpotMarketTuple:
         precision = 10**market.decimals
 
         from driftpy.math.spot_market import get_token_amount
@@ -158,6 +159,7 @@ class SimulationResultBuilder:
             gta(market.revenue_pool.scaled_balance) / precision,
             market.spot_fee_pool.scaled_balance / precision,
             insurance_fund_balance,
+            spot_vault_balance,
             market.total_spot_fee / precision,
             gta(market.deposit_balance) / precision,
             gta(market.borrow_balance) / precision,
@@ -174,14 +176,14 @@ class SimulationResultBuilder:
     def add_initial_perp_market(self, market: PerpMarket):
         self.initial_perp_markets.append(self.perp_market_to_tuple(market))
 
-    def add_initial_spot_market(self, insurance_fund_balance: str, market: SpotMarket):
-        self.initial_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, market))
+    def add_initial_spot_market(self, insurance_fund_balance: str, spot_vault_balance: str, market: SpotMarket):
+        self.initial_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, spot_vault_balance, market))
 
     def add_final_perp_market(self, market: PerpMarket):
         self.final_perp_markets.append(self.perp_market_to_tuple(market))
 
-    def add_final_spot_market(self, insurance_fund_balance: str, market: SpotMarket):
-        self.final_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, market))
+    def add_final_spot_market(self, insurance_fund_balance: str, spot_vault_balance: str, market: SpotMarket):
+        self.final_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, spot_vault_balance, market))
 
     def print_perp_markets(self, markets: List[PerpMarketTuple], final_markets) -> str:
         msg = ""
@@ -209,6 +211,7 @@ class SimulationResultBuilder:
             msg += f"  Revenue pool:                  {market.revenue_pool} -> {f_market.revenue_pool}\n"
             msg += f"  Spot fee pool:                 {market.spot_fee_pool} -> {f_market.spot_fee_pool}\n"
             msg += f"  Insurance fund balance:        {market.insurance_fund_balance} -> {f_market.insurance_fund_balance}\n"
+            msg += f"  Spot Vault balance:            {market.spot_vault_balance} -> {f_market.spot_vault_balance}\n"
             msg += f"  Total spot fee:                {market.total_spot_fee} -> {f_market.total_spot_fee}\n"
             msg += f"  Deposit balance:               {market.deposit_balance} -> {f_market.deposit_balance}\n"
             msg += f"  Borrow balance:                {market.borrow_balance} -> {f_market.borrow_balance}\n"
@@ -263,11 +266,18 @@ class SimulationResultBuilder:
             total_market_money += market.fee_pool + market.pnl_pool
 
         quote_spot: SpotMarket = self.final_spot_markets[0]
-        total_market_money = quote_spot.revenue_pool + total_market_money
+        total_market_money += quote_spot.revenue_pool
 
-        msg += f'total market money: {total_market_money}'
-        msg += f'spot market 0 balance: {quote_spot.deposit_balance}'
-        msg += f'market $ == spot deposit $: {total_market_money == quote_spot.deposit_balance}'
+        msg += f'total market money (sum(fee_pool + pnl_pool)): {total_market_money} \n'
+        msg += f'usdc deposit balance: {quote_spot.deposit_balance} \n'
+        msg += f'spot delta = (usdc deposit $ - market $): {quote_spot.deposit_balance - total_market_money} \n'
+
+        market: SpotMarketTuple
+        for i, market in enumerate(self.final_spot_markets):
+            net_deposits = market.deposit_balance - market.borrow_balance
+            net_deposits += market.revenue_pool + market.spot_fee_pool
+            msg += f'spot net deposits: {net_deposits} \n'
+            msg += f'spot market {i} deta: (deposit ({market.deposit_balance}) - borrow ({market.borrow_balance}) + rev ({market.revenue_pool}) + fee ({market.spot_fee_pool})) - vault balance ({market.spot_vault_balance}): {float(market.spot_vault_balance) - net_deposits} \n'
 
         msg += '```\n'
 
