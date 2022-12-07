@@ -368,133 +368,133 @@ async def clone_close(sim_results: SimulationResultBuilder):
     from driftpy.math.spot_market import get_token_amount
     from driftpy.setup.helpers import mint_ix
 
-    # # pay back all borrows
-    # print('paying back borrows...') 
-    # pbar = tqdm(total=n_users)
-    # for _, ch in enumerate(chs):                
-    #     for sid in ch.subaccounts:
-    #         sigs = []
-    #         for spot_market_index in range(n_spot_markets):
-    #             spot_market = await get_spot_market_account(program, spot_market_index)
-    #             position = await ch.get_user_spot_position(spot_market_index, sid)
-    #             if position is None: 
-    #                 continue
+    # pay back all borrows
+    print('paying back borrows...') 
+    pbar = tqdm(total=n_users)
+    for _, ch in enumerate(chs):                
+        for sid in ch.subaccounts:
+            sigs = []
+            for spot_market_index in range(n_spot_markets):
+                spot_market = await get_spot_market_account(program, spot_market_index)
+                position = await ch.get_user_spot_position(spot_market_index, sid)
+                if position is None: 
+                    continue
 
-    #             if spot_market_index not in ch.spot_market_atas:
-    #                 ix = create_associated_token_account(ch.authority, ch.authority, spot_market.mint)
-    #                 await ch.send_ixs(ix)
-    #                 ata = get_associated_token_address(ch.authority, spot_market.mint)
-    #                 ch.spot_market_atas[spot_market_index] = ata
+                if spot_market_index not in ch.spot_market_atas:
+                    ix = create_associated_token_account(ch.authority, ch.authority, spot_market.mint)
+                    await ch.send_ixs(ix)
+                    ata = get_associated_token_address(ch.authority, spot_market.mint)
+                    ch.spot_market_atas[spot_market_index] = ata
                 
-    #             if str(position.balance_type) != "SpotBalanceType.Borrow()":
-    #                 continue
+                if str(position.balance_type) != "SpotBalanceType.Borrow()":
+                    continue
 
-    #             print(f'paying back borrow for spot {spot_market.market_index}...')
-    #             # mint to 
-    #             token_amount = get_token_amount(
-    #                 position.scaled_balance, 
-    #                 spot_market, 
-    #                 position.balance_type
-    #             )
-    #             token_amount = int(token_amount + 1000 * (10 ** spot_market.decimals))
-    #             print('token amount', token_amount)
+                print(f'paying back borrow for spot {spot_market.market_index}...')
+                # mint to 
+                token_amount = get_token_amount(
+                    position.scaled_balance, 
+                    spot_market, 
+                    position.balance_type
+                )
+                token_amount = int(token_amount + 1000 * (10 ** spot_market.decimals))
+                print('token amount', token_amount)
 
-    #             if spot_market_index == 0:
-    #                 mint_tx = mint_ix(
-    #                     spot_market.mint, 
-    #                     state_ch.authority, 
-    #                     token_amount, 
-    #                     ch.spot_market_atas[spot_market_index]
-    #                 )
-    #                 await state_ch.send_ixs(mint_tx)
+                if spot_market_index == 0:
+                    mint_tx = mint_ix(
+                        spot_market.mint, 
+                        state_ch.authority, 
+                        token_amount, 
+                        ch.spot_market_atas[spot_market_index]
+                    )
+                    await state_ch.send_ixs(mint_tx)
 
-    #             else: 
-    #                 b = await connection.get_balance(ch.spot_market_atas[spot_market_index])
-    #                 if b['result']['value'] < token_amount:
-    #                     sig = (await connection.request_airdrop(
-    #                         ch.spot_market_atas[spot_market_index], 
-    #                         token_amount
-    #                     ))['result']
-    #                     await connection.confirm_transaction(sig)
+                else: 
+                    b = await connection.get_balance(ch.spot_market_atas[spot_market_index])
+                    if b['result']['value'] < token_amount:
+                        sig = (await connection.request_airdrop(
+                            ch.spot_market_atas[spot_market_index], 
+                            token_amount
+                        ))['result']
+                        await connection.confirm_transaction(sig)
 
-    #                 # sync native ix 
-    #                 # https://github.dev/solana-labs/solana-program-library/token/js/src/ix/types.ts
-    #                 keys = [AccountMeta(pubkey=ch.spot_market_atas[spot_market_index], is_signer=False, is_writable=True)]
-    #                 data = int.to_bytes(17, 1, 'little')
-    #                 program_id = TOKEN_PROGRAM_ID
-    #                 ix = TransactionInstruction(
-    #                     keys=keys, 
-    #                     program_id=program_id, 
-    #                     data=data
-    #                 )
-    #                 await ch.send_ixs(ix)
+                    # sync native ix 
+                    # https://github.dev/solana-labs/solana-program-library/token/js/src/ix/types.ts
+                    keys = [AccountMeta(pubkey=ch.spot_market_atas[spot_market_index], is_signer=False, is_writable=True)]
+                    data = int.to_bytes(17, 1, 'little')
+                    program_id = TOKEN_PROGRAM_ID
+                    ix = TransactionInstruction(
+                        keys=keys, 
+                        program_id=program_id, 
+                        data=data
+                    )
+                    await ch.send_ixs(ix)
 
-    #             # deposit / pay back 
-    #             sig = await ch.deposit(
-    #                 int(1e19),
-    #                 spot_market_index, 
-    #                 ch.spot_market_atas[spot_market_index],
-    #                 user_id=sid,
-    #                 reduce_only=True, 
-    #             )
-    #             sigs.append(sig)
-    #         pbar.update(1)
+                # deposit / pay back 
+                sig = await ch.deposit(
+                    int(1e19),
+                    spot_market_index, 
+                    ch.spot_market_atas[spot_market_index],
+                    user_id=sid,
+                    reduce_only=True, 
+                )
+                sigs.append(sig)
+            pbar.update(1)
 
-    # print('confirming...') 
-    # if len(sigs) > 0:
-    #     await connection.confirm_transaction(sigs[-1])    
+    print('confirming...') 
+    if len(sigs) > 0:
+        await connection.confirm_transaction(sigs[-1])    
 
-    # # withdraw all the money
-    # print('withdrawing all the money...')
-    # sigs = []
-    # for spot_market_index in range(n_spot_markets):
-    #     spot_market = await get_spot_market_account(program, spot_market_index)
-    #     attempt = -1
-    #     ch: ClearingHouse
-    #     success = False
-    #     while not success and attempt < 0: # only try once for rn 
-    #         attempt += 1
-    #         success = True
-    #         user_withdraw_count = 0
-    #         print(colored(f' =>> spot market {spot_market_index}: withdraw attempt {attempt}', "blue"))
+    # withdraw all the money
+    print('withdrawing all the money...')
+    sigs = []
+    for spot_market_index in range(n_spot_markets):
+        spot_market = await get_spot_market_account(program, spot_market_index)
+        attempt = -1
+        ch: ClearingHouse
+        success = False
+        while not success and attempt < 0: # only try once for rn 
+            attempt += 1
+            success = True
+            user_withdraw_count = 0
+            print(colored(f' =>> spot market {spot_market_index}: withdraw attempt {attempt}', "blue"))
 
-    #         for _, ch in enumerate(chs):                
-    #             for sid in ch.subaccounts:
-    #                 position = await ch.get_user_spot_position(spot_market_index, sid)
-    #                 if position is None: 
-    #                     user_withdraw_count += 1
-    #                     continue
+            for _, ch in enumerate(chs):                
+                for sid in ch.subaccounts:
+                    position = await ch.get_user_spot_position(spot_market_index, sid)
+                    if position is None: 
+                        user_withdraw_count += 1
+                        continue
 
-    #                 spot_market = await get_spot_market_account(program, spot_market_index)
-    #                 token_amount = int(get_token_amount(
-    #                     position.scaled_balance, 
-    #                     spot_market,
-    #                     position.balance_type
-    #                 ))
-    #                 print('token amount', token_amount)
+                    spot_market = await get_spot_market_account(program, spot_market_index)
+                    token_amount = int(get_token_amount(
+                        position.scaled_balance, 
+                        spot_market,
+                        position.balance_type
+                    ))
+                    print('token amount', token_amount)
 
-    #                 # withdraw all of collateral
-    #                 ix = await ch.get_withdraw_collateral_ix(
-    #                     int(1e19),
-    #                     spot_market_index, 
-    #                     ch.spot_market_atas[spot_market_index],
-    #                     True, 
-    #                     user_id=sid,
-    #                 )
-    #                 (failed, sig, _) = await _send_ix(ch, ix, 'withdraw', {})
+                    # withdraw all of collateral
+                    ix = await ch.get_withdraw_collateral_ix(
+                        int(1e19),
+                        spot_market_index, 
+                        ch.spot_market_atas[spot_market_index],
+                        True, 
+                        user_id=sid,
+                    )
+                    (failed, sig, _) = await _send_ix(ch, ix, 'withdraw', {})
 
-    #                 if not failed:
-    #                     user_withdraw_count += 1
-    #                     print(colored(f'withdraw success: {user_withdraw_count}/{n_users}', 'green'))
-    #                     sigs.append(sig)
-    #                 else: 
-    #                     print(colored(f'withdraw failed: {user_withdraw_count}/{n_users}', 'red'))
-    #                     success = False
-    #                 print('---')
+                    if not failed:
+                        user_withdraw_count += 1
+                        print(colored(f'withdraw success: {user_withdraw_count}/{n_users}', 'green'))
+                        sigs.append(sig)
+                    else: 
+                        print(colored(f'withdraw failed: {user_withdraw_count}/{n_users}', 'red'))
+                        success = False
+                    print('---')
 
-    # print('confirming...') 
-    # if len(sigs) > 0:
-    #     await connection.confirm_transaction(sigs[-1], commitment=commitment.Finalized)    
+    print('confirming...') 
+    if len(sigs) > 0:
+        await connection.confirm_transaction(sigs[-1], commitment=commitment.Finalized)    
 
     n_spot, n_perp = 0, 0
     for ch in chs:
