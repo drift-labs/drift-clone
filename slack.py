@@ -99,12 +99,13 @@ class SimulationResultBuilder:
         self.commit_hash = os.environ.get("COMMIT")
         self.settled_markets = []
         self.total_users = 0
-        self.settle_user_success = 0
-        self.settle_user_fail_reasons = []
+        self.settle_user_success = {}
+        self.settle_user_fail_reasons = {}
         self.initial_perp_markets = []
         self.initial_spot_markets = []
         self.final_perp_markets = []
         self.final_spot_markets = []
+        self.final_settle_results = {}
 
         self.slack.send_message(f"Simulation run started at: {self.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}\nCommit: `{self.commit_hash}`")
 
@@ -123,11 +124,15 @@ class SimulationResultBuilder:
     def add_total_users(self, total_users: int):
         self.total_users = total_users
 
-    def add_settle_user_success(self):
-        self.settle_user_success = self.settle_user_success + 1
+    def add_settle_user_success(self, market_index):
+        self.settle_user_success[market_index] = self.settle_user_success.get(market_index, 0) + 1
 
-    def add_settle_user_fail(self, e: Exception):
-        self.settle_user_fail_reasons.append(e)
+    def add_settle_user_fail(self, e: Exception, market_index):
+        failed_settles = self.settle_user_fail_reasons.get(market_index, [])
+        failed_settles.append(e)
+
+    def add_final_settle_results(self, market_index, full_settled_ok):
+        self.final_settle_results[market_index] = full_settled_ok
 
     def perp_market_to_tuple(self, market: PerpMarket) -> PerpMarketTuple:
         return PerpMarketTuple(
@@ -237,17 +242,15 @@ class SimulationResultBuilder:
             msg += f"  Last oracle price twap: {expired_market.last_oracle_price_twap}\n"
         msg += '```\n'
 
-        total_users_with_positions = len(self.settle_user_fail_reasons) + self.settle_user_success
-        msg += f"\n*Settled Users:*\n"
-        msg += '```\n'
-        msg += f" Total users: {self.total_users}, users with positions: {total_users_with_positions}\n"
-        if len(self.settle_user_fail_reasons) == 0:
-            msg += f" All {self.settle_user_success}/{total_users_with_positions}  users settled successfully ✅\n"
-        else:
-            msg += f" {len(self.settle_user_fail_reasons)}/{total_users_with_positions} users settled unsuccessfully ❌, reasons:\n"
-            for (i, e) in enumerate(self.settle_user_fail_reasons):
-                msg += f"  {i}: {e}\n"
-        msg += '```\n'
+        for market_index in self.settle_user_fail_reasons.keys():
+            n_success = self.settle_user_fail_reasons[market_index]
+            n_fail = self.settle_user_success[market_index] # if this > 0 then the program would never succeed
+
+            msg += f"\n*Settled Users Perp Market {market_index}:*\n"
+            msg += '```\n'
+            msg += f" Total users: {self.total_users}\n"
+            msg += f" All {n_success}  users settled successfully ✅\n"
+            msg += '```\n'
 
         msg += f"\n*Perp Market Metrics:*\n"
         msg += '```\n'
@@ -277,7 +280,7 @@ class SimulationResultBuilder:
             net_deposits = market.deposit_balance - market.borrow_balance
             net_deposits += market.revenue_pool + market.spot_fee_pool
             msg += f'spot net deposits: {net_deposits} \n'
-            msg += f'spot market {i} deta: (deposit ({market.deposit_balance}) - borrow ({market.borrow_balance}) + rev ({market.revenue_pool}) + fee ({market.spot_fee_pool})) - vault balance ({market.spot_vault_balance}): {float(market.spot_vault_balance) - net_deposits} \n'
+            msg += f'spot market {i} deta: (deposit - borrow + rev + fee) - vault balance: {float(market.spot_vault_balance) - net_deposits} \n'
 
         msg += '```\n'
 
