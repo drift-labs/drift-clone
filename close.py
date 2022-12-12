@@ -279,14 +279,19 @@ async def clone_close(sim_results: SimulationResultBuilder):
         withdraw_amount = int(v_amount * n_shares / total_shares)
         print(f'withdrawing {withdraw_amount/QUOTE_PRECISION}...')
 
-        ix1 = await clearing_house.get_request_remove_insurance_fund_stake_ix(
-            market_index, 
-            withdraw_amount
-        )
+        ixs = []
+        if if_stake.last_withdraw_request_shares == 0:
+            ix = await clearing_house.get_request_remove_insurance_fund_stake_ix(
+                market_index, 
+                withdraw_amount
+            )
+            ixs.append(ix)
+
         ix2 = await clearing_house.get_remove_insurance_fund_stake_ix(
             market_index, 
         )
-        sig = await clearing_house.send_ixs([ix1, ix2])
+        ixs.append(ix2)
+        sig = await clearing_house.send_ixs(ixs)
 
         return sig
 
