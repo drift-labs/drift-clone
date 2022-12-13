@@ -276,6 +276,11 @@ class SimulationResultBuilder:
         msg += f'  USDC deposit balance: {quote_spot.deposit_balance} \n'
         msg += f'  USDC delta = (deposit $ - market $): {quote_spot.deposit_balance - total_market_money} \n'
 
+        for i, market in enumerate(self.final_spot_markets):
+            if i == 0: continue
+            msg += f'Spot Market {i} Delta: \n'
+            msg += f'  delta = (deposit $ - revenue $): {market.deposit_balance - market.revenue_pool} \n'
+
         msg += '```\n'
 
         return msg
