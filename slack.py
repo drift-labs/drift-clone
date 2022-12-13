@@ -260,8 +260,13 @@ class SimulationResultBuilder:
         msg += f"\n*Final State Invariants:*\n"
         msg += '```\n'
         total_market_money = 0
+        market: PerpMarketTuple
         for market in self.final_perp_markets:
             total_market_money += market.fee_pool + market.pnl_pool
+
+        market: SpotMarketTuple
+        for market in self.final_spot_markets: 
+            total_market_money += market.spot_fee_pool
 
         quote_spot: SpotMarket = self.final_spot_markets[0]
         total_market_money += quote_spot.revenue_pool
