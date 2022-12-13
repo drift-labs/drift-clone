@@ -64,6 +64,7 @@ PerpMarketTuple = namedtuple(
         'last_funding_rate_short', 
         'fee_pool', 
         'pnl_pool',
+        'status', 
     ]
 )
 
@@ -150,6 +151,7 @@ class SimulationResultBuilder:
             market.amm.last_funding_rate_short / FUNDING_RATE_PRECISION,
             market.amm.fee_pool.scaled_balance / QUOTE_PRECISION,
             market.pnl_pool.scaled_balance / SPOT_BALANCE_PRECISION,
+            market.status,
         )
 
 
@@ -201,12 +203,9 @@ class SimulationResultBuilder:
             msg += f"  Base asset amount short:       {market.base_asset_amount_short} -> {f_market.base_asset_amount_short}\n"
             msg += f"  User LP shares:                {market.user_lp_shares} -> {f_market.user_lp_shares}\n"
             msg += f"  Total social loss:             {market.total_social_loss} -> {f_market.total_social_loss}\n"
-            msg += f"  Cumulative funding rate long:  {market.cumulative_funding_rate_long} -> {f_market.cumulative_funding_rate_long}\n"
-            msg += f"  Cumulative funding rate short: {market.cumulative_funding_rate_short} -> {f_market.cumulative_funding_rate_short}\n"
-            msg += f"  Last funding rate long:        {market.last_funding_rate_long} -> {f_market.last_funding_rate_long}\n"
-            msg += f"  Last funding rate short:       {market.last_funding_rate_short} -> {f_market.last_funding_rate_short}\n"
             msg += f"  Fee pool:                      {market.fee_pool} -> {f_market.fee_pool}\n"
             msg += f"  Pnl pool:                      {market.pnl_pool} -> {f_market.pnl_pool}\n"
+            msg += f"  Status:                        {market.status} -> {f_market.status}\n"
         return msg
 
     def print_spot_markets(self, markets: List[SpotMarketTuple], f_markets) -> str:
@@ -220,12 +219,8 @@ class SimulationResultBuilder:
             msg += f"  Total spot fee:                {market.total_spot_fee} -> {f_market.total_spot_fee}\n"
             msg += f"  Deposit balance:               {market.deposit_balance} -> {f_market.deposit_balance}\n"
             msg += f"  Borrow balance:                {market.borrow_balance} -> {f_market.borrow_balance}\n"
-            msg += f"  Cumulative deposit interest:   {market.cumulative_deposit_interest} -> {f_market.cumulative_deposit_interest}\n"
-            msg += f"  Cumulative borrow interest:    {market.cumulative_borrow_interest} -> {f_market.cumulative_borrow_interest}\n"
             msg += f"  Total social loss:             {market.total_social_loss} -> {f_market.total_social_loss}\n"
             msg += f"  Total quote social loss:       {market.total_quote_social_loss} -> {f_market.total_quote_social_loss}\n"
-            msg += f"  Liquidator fee:                {market.liquidator_fee} -> {f_market.liquidator_fee}\n"
-            msg += f"  Insurance fund liquidation fee:{market.if_liquidation_fee} -> {f_market.if_liquidation_fee}\n"
             msg += f"  Status:                        {market.status} -> {f_market.status}\n"
         return msg
 
@@ -271,16 +266,10 @@ class SimulationResultBuilder:
         quote_spot: SpotMarket = self.final_spot_markets[0]
         total_market_money += quote_spot.revenue_pool
 
-        msg += f'total market money (sum(fee_pool + pnl_pool)): {total_market_money} \n'
-        msg += f'usdc deposit balance: {quote_spot.deposit_balance} \n'
-        msg += f'spot delta = (usdc deposit $ - market $): {quote_spot.deposit_balance - total_market_money} \n'
-
-        market: SpotMarketTuple
-        for i, market in enumerate(self.final_spot_markets):
-            net_deposits = market.deposit_balance - market.borrow_balance
-            net_deposits += market.revenue_pool + market.spot_fee_pool
-            msg += f'spot net deposits: {net_deposits} \n'
-            msg += f'spot market {i} deta: (deposit - borrow + rev + fee) - vault balance: {float(market.spot_vault_balance) - net_deposits} \n'
+        msg += f'USDC Spot Market \n'
+        msg += f'  USDC market money (sum(fee + pnl) + spot_revenue): {total_market_money} \n'
+        msg += f'  USDC deposit balance: {quote_spot.deposit_balance} \n'
+        msg += f'  USDC delta = (deposit $ - market $): {quote_spot.deposit_balance - total_market_money} \n'
 
         msg += '```\n'
 
