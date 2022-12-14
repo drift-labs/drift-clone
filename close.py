@@ -329,12 +329,17 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
         while not success:
             if attempt > 5: 
-                sim_results.post_fail('something went wrong during settle expired position...')
+                msg = f'something went wrong during settle expired position with market {perp_market_idx}... \n'
+                msg += f'failed to settle {num_fails} users... \n'
+                msg += f'error msgs: {pprint.pformat(errors, indent=4)}'
+                sim_results.post_fail(msg)
                 return 
 
+            num_fails = 0
             attempt += 1
             success = True
             i = 0
+            errors = []
             routines = []
             ids = []
             print(colored(f' =>> market {perp_market_idx}: settle attempt {attempt}', "blue"))
@@ -358,6 +363,8 @@ async def clone_close(sim_results: SimulationResultBuilder):
                     success = False
                     if attempt > 0:
                         print(position, user_i, sid)
+                    num_fails += 1
+                    errors.append(e)
 
                     print(f'settled failed... {i}/{n_users}')
                     sim_results.add_settle_user_fail(e, perp_market_idx)
