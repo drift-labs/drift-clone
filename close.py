@@ -158,7 +158,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
             for sid in ch.subaccounts:
                 position = await ch.get_user_position(perp_market_idx, sid)
                 if position is not None and position.lp_shares > 0:
-                    print('removing lp...', position.lp_shares)
+                    print(f'removing lp on market {perp_market_idx} for user: {str(ch.authority)} (subaccountId: {sid}), shares: {position.lp_shares}')
                     sig = await ch.remove_liquidity(position.lp_shares, perp_market_idx, sid)
                     _sigs.append(sig)
 
