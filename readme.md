@@ -30,6 +30,32 @@ These environment varibles are required to run the scripts
 - `close.py`: closes all of the users positions
 - `invariants.py`: assert invariants hold true (eg, market.net_baa = sum(user.baa))
 
+## Close Procedure 
+
+- state is updated so users can close out 
+```python 
+    # update state 
+    await state_ch.update_perp_auction_duration(0)
+    await state_ch.update_lp_cooldown_time(0)
+    for i in range(n_spot_markets):
+        await state_ch.update_update_insurance_fund_unstaking_period(i, 0)
+        await state_ch.update_withdraw_guard_threshold(i, 2**64 - 1)
+```
+- markets' expiry times are set 
+- all lps are closed
+- markets are fully expired 
+- users are liquidated (both perp and spot) 
+- IF stakes are removed for full amounts across all spot markets 
+- expired perp market positions are settled 
+   - we use a brute-force approach (each user is settled)
+   - after the first round all negative pnl should be settled and so the pool should have enough pnl to settle all the users 
+   - we attempt to successfully settle all users 5 times - on the 6th loop we exit the closing process and log 'something went wrong during settle expired position...'
+- all spot market borrows are paid back (we mint more of the token to user's ATA to pay back the full amount) 
+- all money is withdrawn from the protocol into ATAs 
+- all expired perp markets call settle_expired_market_pools_to_revenue_pool
+- final metrics are logged
+- fin 
+
 ## random notes
 - when you scrape make sure... 
     - program_id is up to date in the driftpy sdk 
