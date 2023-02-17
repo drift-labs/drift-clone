@@ -1,4 +1,4 @@
-## req 
+## Quick Setup (method 1)
 ```bash
 # setup env
 conda create -n tmp python=3.10
@@ -10,6 +10,17 @@ git submodule update --init
 note: need solana-cli v1.14.7 or greater for local validator's --account-dir flag to work 
 (`sh -c "$(curl -sSfL https://release.solana.com/v1.14.7/install)"`)
 
+
+
+## Quick Run (method 2 - recommend)
+```
+python3.10 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+bash setup.sh
+bash run.sh
+```
 
 ## Environment Variables
 
