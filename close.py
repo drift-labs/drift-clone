@@ -388,6 +388,8 @@ async def clone_close(sim_results: SimulationResultBuilder):
             sigs = []
             for spot_market_index in range(n_spot_markets):
                 spot_market = await get_spot_market_account(program, spot_market_index)
+                market_name = ''.join(map(chr, spot_market.name)).strip(" ")
+
                 position = await ch.get_user_spot_position(spot_market_index, sid)
                 if position is None: 
                     continue
@@ -401,15 +403,17 @@ async def clone_close(sim_results: SimulationResultBuilder):
                 if str(position.balance_type) != "SpotBalanceType.Borrow()":
                     continue
 
-                print(f'paying back borrow for spot {spot_market.market_index}...')
+                # print(f'paying back borrow for spot {spot_market.market_index}...')
                 # mint to 
                 token_amount = get_token_amount(
                     position.scaled_balance, 
                     spot_market, 
                     position.balance_type
                 )
-                token_amount = int(token_amount + 1000 * (10 ** spot_market.decimals))
-                print('token amount', token_amount)
+
+                token_units = (10 ** spot_market.decimals)
+                token_amount = int(token_amount + .01 * (10 ** spot_market.decimals)) # todo: add .01 for rounding issues?
+                print(f'paying back borrow of {float(token_amount)/token_units} {market_name} ({spot_market.market_index})')
 
                 if spot_market_index == 0:
                     mint_tx = mint_ix(
