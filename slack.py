@@ -225,7 +225,9 @@ class SimulationResultBuilder:
         return msg
 
 
-    def build_message(self) -> str:
+    def build_slack_message(self) -> List[str]:
+        msgs = []
+
         msg = f"*Sim slot:       {self.start_slot}*\n"
         msg += f"*Time elapsed:  {self.end_time - self.start_time}*\n"
         msg += f"\n*Settled markets:*\n"
@@ -236,28 +238,35 @@ class SimulationResultBuilder:
             msg += f"  Last oracle price:      {expired_market.last_oracle_price}\n"
             msg += f"  Last oracle price twap: {expired_market.last_oracle_price_twap}\n"
         msg += '```\n'
+        msgs.append(msg)
 
-        for market_index in self.settle_user_fail_reasons.keys():
-            n_success = self.settle_user_fail_reasons[market_index]
-            n_fail = self.settle_user_success[market_index] # if this > 0 then the program would never succeed
+        if len(self.settle_user_fail_reasons.keys()) > 0:
+            msg = f"*Failed Settle User Reasons:*\n"
+            for market_index in self.settle_user_fail_reasons.keys():
+                n_success = self.settle_user_fail_reasons[market_index]
+                n_fail = self.settle_user_success[market_index] # if this > 0 then the program would never succeed
 
-            msg += f"\n*Settled Users Perp Market {market_index}:*\n"
-            msg += '```\n'
-            msg += f" Total users: {self.total_users}\n"
-            msg += f" All {n_success}  users settled successfully ✅\n"
-            msg += '```\n'
+                msg += f"\n*Settled Users Perp Market {market_index}:*\n"
+                msg += '```\n'
+                msg += f" Total users: {self.total_users}\n"
+                msg += f" {n_success}/{self.total_users} users settled successfully ✅\n"
+                msg += f" {n_fail}/{self.total_users} users settled with error ❌\n"
+                msg += '```\n'
+            msgs.append(msg)
 
-        msg += f"\n*Perp Market Metrics:*\n"
+        msg = f"*Perp Market Metrics:*\n"
         msg += '```\n'
         msg += self.print_perp_markets(self.initial_perp_markets, self.final_perp_markets)
         msg += '```\n'
+        msgs.append(msg)
 
-        msg += f"\n*Spot Market Metrics:*\n"
+        msg = f"*Spot Market Metrics:*\n"
         msg += '```\n'
         msg += self.print_spot_markets(self.initial_spot_markets, self.final_spot_markets)
         msg += '```\n'
+        msgs.append(msg)
         
-        msg += f"\n*Final State Invariants:*\n"
+        msg = f"*Final State Invariants:*\n"
         msg += '```\n'
         total_market_money = 0
         market: PerpMarketTuple
@@ -282,8 +291,9 @@ class SimulationResultBuilder:
             msg += f'  delta = (deposit $ - revenue $): {market.deposit_balance - market.revenue_pool} \n'
 
         msg += '```\n'
+        msgs.append(msg)
 
-        return msg
+        return msgs
 
     def post_fail(self, msg):
         print(msg)
@@ -291,7 +301,8 @@ class SimulationResultBuilder:
             self.slack.send_message(msg)
 
     def post_result(self):
-        msg = self.build_message()
-        print(msg)
-        if self.slack.can_send_messages():
-            self.slack.send_message(msg)
+        msgs = self.build_slack_message()
+        for msg in msgs:
+            print(msg)
+            if self.slack.can_send_messages():
+                self.slack.send_message(msg)
