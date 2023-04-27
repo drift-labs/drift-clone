@@ -64,6 +64,7 @@ PerpMarketTuple = namedtuple(
         'last_funding_rate_short', 
         'fee_pool', 
         'pnl_pool',
+        'status', 
     ]
 )
 
@@ -73,6 +74,7 @@ SpotMarketTuple = namedtuple(
         'market_idx',
         'revenue_pool',
         'spot_fee_pool',
+        'spot_vault_balance',
         'insurance_fund_balance',
         'total_spot_fee',
         'deposit_balance', 
@@ -98,12 +100,13 @@ class SimulationResultBuilder:
         self.commit_hash = os.environ.get("COMMIT")
         self.settled_markets = []
         self.total_users = 0
-        self.settle_user_success = 0
-        self.settle_user_fail_reasons = []
+        self.settle_user_success = {}
+        self.settle_user_fail_reasons = {}
         self.initial_perp_markets = []
         self.initial_spot_markets = []
         self.final_perp_markets = []
         self.final_spot_markets = []
+        self.final_settle_results = {}
 
         self.slack.send_message(f"Simulation run started at: {self.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}\nCommit: `{self.commit_hash}`")
 
@@ -122,11 +125,15 @@ class SimulationResultBuilder:
     def add_total_users(self, total_users: int):
         self.total_users = total_users
 
-    def add_settle_user_success(self):
-        self.settle_user_success = self.settle_user_success + 1
+    def add_settle_user_success(self, market_index):
+        self.settle_user_success[market_index] = self.settle_user_success.get(market_index, 0) + 1
 
-    def add_settle_user_fail(self, e: Exception):
-        self.settle_user_fail_reasons.append(e)
+    def add_settle_user_fail(self, e: Exception, market_index):
+        failed_settles = self.settle_user_fail_reasons.get(market_index, [])
+        failed_settles.append(e)
+
+    def add_final_settle_results(self, market_index, full_settled_ok):
+        self.final_settle_results[market_index] = full_settled_ok
 
     def perp_market_to_tuple(self, market: PerpMarket) -> PerpMarketTuple:
         return PerpMarketTuple(
@@ -144,19 +151,21 @@ class SimulationResultBuilder:
             market.amm.last_funding_rate_short / FUNDING_RATE_PRECISION,
             market.amm.fee_pool.scaled_balance / QUOTE_PRECISION,
             market.pnl_pool.scaled_balance / SPOT_BALANCE_PRECISION,
+            market.status,
         )
 
 
-    def spot_market_to_tuple(self, insurance_fund_balance: str, market: SpotMarket) -> SpotMarketTuple:
+    def spot_market_to_tuple(self, insurance_fund_balance: str, spot_vault_balance: str, market: SpotMarket) -> SpotMarketTuple:
         precision = 10**market.decimals
 
         from driftpy.math.spot_market import get_token_amount
-        gta = lambda ta: get_token_amount(ta, market, "SpotBalanceType.Deposit()")
+        gta = lambda ta: get_token_amount(ta, market, "SpotBalanceType.Deposit()" if ta > 0 else "SpotBalanceType.Borrow()")
 
         return SpotMarketTuple(
             market.market_index,
-            market.revenue_pool.scaled_balance / precision,
+            gta(market.revenue_pool.scaled_balance) / precision,
             market.spot_fee_pool.scaled_balance / precision,
+            spot_vault_balance,
             insurance_fund_balance,
             market.total_spot_fee / precision,
             gta(market.deposit_balance) / precision,
@@ -174,14 +183,14 @@ class SimulationResultBuilder:
     def add_initial_perp_market(self, market: PerpMarket):
         self.initial_perp_markets.append(self.perp_market_to_tuple(market))
 
-    def add_initial_spot_market(self, insurance_fund_balance: str, market: SpotMarket):
-        self.initial_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, market))
+    def add_initial_spot_market(self, insurance_fund_balance: str, spot_vault_balance: str, market: SpotMarket):
+        self.initial_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, spot_vault_balance, market))
 
     def add_final_perp_market(self, market: PerpMarket):
         self.final_perp_markets.append(self.perp_market_to_tuple(market))
 
-    def add_final_spot_market(self, insurance_fund_balance: str, market: SpotMarket):
-        self.final_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, market))
+    def add_final_spot_market(self, insurance_fund_balance: str, spot_vault_balance: str, market: SpotMarket):
+        self.final_spot_markets.append(self.spot_market_to_tuple(insurance_fund_balance, spot_vault_balance, market))
 
     def print_perp_markets(self, markets: List[PerpMarketTuple], final_markets) -> str:
         msg = ""
@@ -194,12 +203,9 @@ class SimulationResultBuilder:
             msg += f"  Base asset amount short:       {market.base_asset_amount_short} -> {f_market.base_asset_amount_short}\n"
             msg += f"  User LP shares:                {market.user_lp_shares} -> {f_market.user_lp_shares}\n"
             msg += f"  Total social loss:             {market.total_social_loss} -> {f_market.total_social_loss}\n"
-            msg += f"  Cumulative funding rate long:  {market.cumulative_funding_rate_long} -> {f_market.cumulative_funding_rate_long}\n"
-            msg += f"  Cumulative funding rate short: {market.cumulative_funding_rate_short} -> {f_market.cumulative_funding_rate_short}\n"
-            msg += f"  Last funding rate long:        {market.last_funding_rate_long} -> {f_market.last_funding_rate_long}\n"
-            msg += f"  Last funding rate short:       {market.last_funding_rate_short} -> {f_market.last_funding_rate_short}\n"
             msg += f"  Fee pool:                      {market.fee_pool} -> {f_market.fee_pool}\n"
             msg += f"  Pnl pool:                      {market.pnl_pool} -> {f_market.pnl_pool}\n"
+            msg += f"  Status:                        {market.status} -> {f_market.status}\n"
         return msg
 
     def print_spot_markets(self, markets: List[SpotMarketTuple], f_markets) -> str:
@@ -209,20 +215,19 @@ class SimulationResultBuilder:
             msg += f"  Revenue pool:                  {market.revenue_pool} -> {f_market.revenue_pool}\n"
             msg += f"  Spot fee pool:                 {market.spot_fee_pool} -> {f_market.spot_fee_pool}\n"
             msg += f"  Insurance fund balance:        {market.insurance_fund_balance} -> {f_market.insurance_fund_balance}\n"
+            msg += f"  Spot Vault balance:            {market.spot_vault_balance} -> {f_market.spot_vault_balance}\n"
             msg += f"  Total spot fee:                {market.total_spot_fee} -> {f_market.total_spot_fee}\n"
             msg += f"  Deposit balance:               {market.deposit_balance} -> {f_market.deposit_balance}\n"
             msg += f"  Borrow balance:                {market.borrow_balance} -> {f_market.borrow_balance}\n"
-            msg += f"  Cumulative deposit interest:   {market.cumulative_deposit_interest} -> {f_market.cumulative_deposit_interest}\n"
-            msg += f"  Cumulative borrow interest:    {market.cumulative_borrow_interest} -> {f_market.cumulative_borrow_interest}\n"
             msg += f"  Total social loss:             {market.total_social_loss} -> {f_market.total_social_loss}\n"
             msg += f"  Total quote social loss:       {market.total_quote_social_loss} -> {f_market.total_quote_social_loss}\n"
-            msg += f"  Liquidator fee:                {market.liquidator_fee} -> {f_market.liquidator_fee}\n"
-            msg += f"  Insurance fund liquidation fee:{market.if_liquidation_fee} -> {f_market.if_liquidation_fee}\n"
             msg += f"  Status:                        {market.status} -> {f_market.status}\n"
         return msg
 
 
-    def build_message(self) -> str:
+    def build_slack_message(self) -> List[str]:
+        msgs = []
+
         msg = f"*Sim slot:       {self.start_slot}*\n"
         msg += f"*Time elapsed:  {self.end_time - self.start_time}*\n"
         msg += f"\n*Settled markets:*\n"
@@ -233,46 +238,62 @@ class SimulationResultBuilder:
             msg += f"  Last oracle price:      {expired_market.last_oracle_price}\n"
             msg += f"  Last oracle price twap: {expired_market.last_oracle_price_twap}\n"
         msg += '```\n'
+        msgs.append(msg)
 
-        total_users_with_positions = len(self.settle_user_fail_reasons) + self.settle_user_success
-        msg += f"\n*Settled Users:*\n"
-        msg += '```\n'
-        msg += f" Total users: {self.total_users}, users with positions: {total_users_with_positions}\n"
-        if len(self.settle_user_fail_reasons) == 0:
-            msg += f" All {self.settle_user_success}/{total_users_with_positions}  users settled successfully ✅\n"
-        else:
-            msg += f" {len(self.settle_user_fail_reasons)}/{total_users_with_positions} users settled unsuccessfully ❌, reasons:\n"
-            for (i, e) in enumerate(self.settle_user_fail_reasons):
-                msg += f"  {i}: {e}\n"
-        msg += '```\n'
+        if len(self.settle_user_fail_reasons.keys()) > 0:
+            msg = f"*Failed Settle User Reasons:*\n"
+            for market_index in self.settle_user_fail_reasons.keys():
+                n_success = self.settle_user_fail_reasons[market_index]
+                n_fail = self.settle_user_success[market_index] # if this > 0 then the program would never succeed
 
-        msg += f"\n*Perp Market Metrics:*\n"
+                msg += f"\n*Settled Users Perp Market {market_index}:*\n"
+                msg += '```\n'
+                msg += f" Total users: {self.total_users}\n"
+                msg += f" {n_success}/{self.total_users} users settled successfully ✅\n"
+                msg += f" {n_fail}/{self.total_users} users settled with error ❌\n"
+                msg += '```\n'
+            msgs.append(msg)
+
+        msg = f"*Perp Market Metrics:*\n"
         msg += '```\n'
         msg += self.print_perp_markets(self.initial_perp_markets, self.final_perp_markets)
         msg += '```\n'
+        msgs.append(msg)
 
-        msg += f"\n*Spot Market Metrics:*\n"
+        msg = f"*Spot Market Metrics:*\n"
         msg += '```\n'
         msg += self.print_spot_markets(self.initial_spot_markets, self.final_spot_markets)
         msg += '```\n'
+        msgs.append(msg)
         
-        # # need to update deposits
-        # msg += f"\n*Final State Invariants:*\n"
-        # msg += '```\n'
-        # total_market_money = 0
-        # for market in range(self.final_perp_markets):
-        #     total_market_money += market.amm.fee_pool.scaled_balance + market.pnl_pool.scaled_balance
+        msg = f"*Final State Invariants:*\n"
+        msg += '```\n'
+        total_market_money = 0
+        market: PerpMarketTuple
+        for market in self.final_perp_markets:
+            total_market_money += market.fee_pool + market.pnl_pool
 
-        # quote_spot: SpotMarket = self.final_spot_markets[0]
-        # total_market_money = quote_spot.revenue_pool.scaled_balance + total_market_money
+        market: SpotMarketTuple
+        for market in self.final_spot_markets: 
+            total_market_money += market.spot_fee_pool
 
-        # msg += f'total market money: {total_market_money}'
-        # msg += f'spot market 0 balance: {quote_spot.deposit_balance}'
-        # msg += f'market $ == spot deposit $'
+        quote_spot: SpotMarket = self.final_spot_markets[0]
+        total_market_money += quote_spot.revenue_pool
 
-        # msg += '```\n'
+        msg += f'USDC Spot Market \n'
+        msg += f'  USDC market money (sum(fee + pnl) + spot_revenue): {total_market_money} \n'
+        msg += f'  USDC deposit balance: {quote_spot.deposit_balance} \n'
+        msg += f'  USDC delta = (deposit $ - market $): {quote_spot.deposit_balance - total_market_money} \n'
 
-        return msg
+        for i, market in enumerate(self.final_spot_markets):
+            if i == 0: continue
+            msg += f'Spot Market {i} Delta: \n'
+            msg += f'  delta = (deposit $ - revenue $): {market.deposit_balance - market.revenue_pool} \n'
+
+        msg += '```\n'
+        msgs.append(msg)
+
+        return msgs
 
     def post_fail(self, msg):
         print(msg)
@@ -280,7 +301,8 @@ class SimulationResultBuilder:
             self.slack.send_message(msg)
 
     def post_result(self):
-        msg = self.build_message()
-        print(msg)
-        if self.slack.can_send_messages():
-            self.slack.send_message(msg)
+        msgs = self.build_slack_message()
+        for msg in msgs:
+            print(msg)
+            if self.slack.can_send_messages():
+                self.slack.send_message(msg)

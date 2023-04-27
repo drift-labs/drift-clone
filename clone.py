@@ -71,28 +71,40 @@ async def batch_get_account_infos(
     is_same_slot = True
     account_infos = []
 
-    acc_requests = []
+    _resp = []
     for i in tqdm(range(0, len(addresses), batch_size)):
-        batch_addresses = addresses[i: i+batch_size]
-        data = get_multiple_accounts_request(
-            [str(addr) for addr in batch_addresses]
+        rpc_requests = []
+        for j in range(i, i+batch_size, 100):
+            batch_addresses = addresses[j: j+100]
+            data = get_multiple_accounts_request(
+                [str(addr) for addr in batch_addresses]
+            )
+            rpc_requests.append(data)
+
+        resp = requests.post(
+            connection._provider.endpoint_uri,
+            headers={"Content-Type": "application/json"}, 
+            json=rpc_requests
         )
-        acc_requests.append(data)
 
-    resp = requests.post(
-        connection._provider.endpoint_uri,
-        headers={"Content-Type": "application/json"}, 
-        json=acc_requests
-    )
-    resp = json.loads(resp.text)
+        try:
+            resp = json.loads(resp.text)
+        except Exception as e: 
+            print(resp.text)
+            raise e
+        _resp += resp
 
-    for batch_account_infos in resp:
+    for batch_account_infos in _resp:
         batch_account_infos = batch_account_infos['result']
         slot = batch_account_infos['context']['slot']
         if _slot == None: 
             _slot = slot 
         elif slot != _slot: 
-            is_same_slot = False
+            print('found different slots (difference):', abs(slot - _slot))
+            if abs(slot - _slot) > 3: 
+                return [], False
+            else: 
+                print('acceptable slot delta...')
         account_infos += batch_account_infos['value']
 
     assert len(account_infos) == len(addresses)
@@ -231,7 +243,7 @@ async def scrape():
         account_infos, success = await batch_get_account_infos(
             connection,
             addrs, 
-            batch_size=100
+            batch_size=1000
         )
         time.sleep(2)
     

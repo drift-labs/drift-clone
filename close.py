@@ -87,6 +87,12 @@ async def get_insurance_fund_balance(connection: AsyncClient, spot_market: SpotM
         raise Exception(balance)
     return balance['result']['value']['uiAmount']
 
+async def get_spot_vault_balance(connection: AsyncClient, spot_market: SpotMarket):
+    balance = await connection.get_token_account_balance(spot_market.vault)
+    if 'error' in balance:
+        raise Exception(balance)
+    return balance['result']['value']['uiAmount']
+
 async def clone_close(sim_results: SimulationResultBuilder):
     config = configs['mainnet']
     url = 'http://127.0.0.1:8899'
@@ -117,8 +123,9 @@ async def clone_close(sim_results: SimulationResultBuilder):
     for i in range(n_spot_markets):
         spot_market = await get_spot_market_account(program, i)
         insurance_fund_balance = await get_insurance_fund_balance(connection, spot_market)
-        print(f" {i}: {insurance_fund_balance}")
-        sim_results.add_initial_spot_market(insurance_fund_balance, spot_market)
+        spot_vault_balance = await get_spot_vault_balance(connection, spot_market)
+        print(f" {i}: {insurance_fund_balance} {spot_vault_balance}")
+        sim_results.add_initial_spot_market(insurance_fund_balance, spot_vault_balance, spot_market)
 
     # update state 
     await state_ch.update_perp_auction_duration(0)
@@ -151,7 +158,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
             for sid in ch.subaccounts:
                 position = await ch.get_user_position(perp_market_idx, sid)
                 if position is not None and position.lp_shares > 0:
-                    print('removing lp...', position.lp_shares)
+                    print(f'removing lp on market {perp_market_idx} for user: {str(ch.authority)} (subaccountId: {sid}), shares: {position.lp_shares}')
                     sig = await ch.remove_liquidity(position.lp_shares, perp_market_idx, sid)
                     _sigs.append(sig)
 
@@ -272,14 +279,19 @@ async def clone_close(sim_results: SimulationResultBuilder):
         withdraw_amount = int(v_amount * n_shares / total_shares)
         print(f'withdrawing {withdraw_amount/QUOTE_PRECISION}...')
 
-        ix1 = await clearing_house.get_request_remove_insurance_fund_stake_ix(
-            market_index, 
-            withdraw_amount
-        )
+        ixs = []
+        if if_stake.last_withdraw_request_shares == 0:
+            ix = await clearing_house.get_request_remove_insurance_fund_stake_ix(
+                market_index, 
+                withdraw_amount
+            )
+            ixs.append(ix)
+
         ix2 = await clearing_house.get_remove_insurance_fund_stake_ix(
             market_index, 
         )
-        sig = await clearing_house.send_ixs([ix1, ix2])
+        ixs.append(ix2)
+        sig = await clearing_house.send_ixs(ixs)
 
         return sig
 
@@ -317,15 +329,20 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
         while not success:
             if attempt > 5: 
-                sim_results.post_fail('something went wrong during settle expired position...')
+                msg = f'something went wrong during settle expired position with market {perp_market_idx}... \n'
+                msg += f'failed to settle {num_fails} users... \n'
+                msg += f'error msgs: {pprint.pformat(errors, indent=4)}'
+                sim_results.post_fail(msg)
                 return 
 
+            num_fails = 0
             attempt += 1
             success = True
             i = 0
+            errors = []
             routines = []
             ids = []
-            print(colored(f' =>> market {i}: settle attempt {attempt}', "blue"))
+            print(colored(f' =>> market {perp_market_idx}: settle attempt {attempt}', "blue"))
             for user_i, ch in enumerate(chs):
                 for sid in ch.subaccounts:
                     position = await ch.get_user_position(perp_market_idx, sid)
@@ -341,14 +358,16 @@ async def clone_close(sim_results: SimulationResultBuilder):
                     settle_sigs.append(sig)
                     i += 1
                     print(f'settled success... {i}/{n_users}')
-                    sim_results.add_settle_user_success()
+                    sim_results.add_settle_user_success(perp_market_idx)
                 except Exception as e: 
                     success = False
                     if attempt > 0:
                         print(position, user_i, sid)
+                    num_fails += 1
+                    errors.append(e)
 
                     print(f'settled failed... {i}/{n_users}')
-                    sim_results.add_settle_user_fail(e)
+                    sim_results.add_settle_user_fail(e, perp_market_idx)
                     pprint.pprint(e)
 
             print(f'settled fin... {i}/{n_users}')
@@ -369,6 +388,8 @@ async def clone_close(sim_results: SimulationResultBuilder):
             sigs = []
             for spot_market_index in range(n_spot_markets):
                 spot_market = await get_spot_market_account(program, spot_market_index)
+                market_name = ''.join(map(chr, spot_market.name)).strip(" ")
+
                 position = await ch.get_user_spot_position(spot_market_index, sid)
                 if position is None: 
                     continue
@@ -382,15 +403,17 @@ async def clone_close(sim_results: SimulationResultBuilder):
                 if str(position.balance_type) != "SpotBalanceType.Borrow()":
                     continue
 
-                print(f'paying back borrow for spot {spot_market.market_index}...')
+                # print(f'paying back borrow for spot {spot_market.market_index}...')
                 # mint to 
                 token_amount = get_token_amount(
                     position.scaled_balance, 
                     spot_market, 
                     position.balance_type
                 )
-                token_amount = int(token_amount + 1000 * (10 ** spot_market.decimals))
-                print('token amount', token_amount)
+
+                token_units = (10 ** spot_market.decimals)
+                token_amount = int(token_amount + .01 * (10 ** spot_market.decimals)) # todo: add .01 for rounding issues?
+                print(f'paying back borrow of {float(token_amount)/token_units} {market_name} ({spot_market.market_index})')
 
                 if spot_market_index == 0:
                     mint_tx = mint_ix(
@@ -503,7 +526,12 @@ async def clone_close(sim_results: SimulationResultBuilder):
                 if position is None: continue
                 n_spot += 1
                 # print(position)
-    print(n_spot, n_perp)
+    print("n (spot, perp) positions:", n_spot, n_perp)
+
+    for i in range(n_markets):
+        await state_ch.update_state_settlement_duration(1)
+        sig = await state_ch.settle_expired_market_pools_to_revenue_pool(i)
+    await connection.confirm_transaction(sig, commitment=commitment.Finalized)    
 
     for i in range(n_markets):
         perp_market = await get_perp_market_account(program, i)
@@ -512,7 +540,9 @@ async def clone_close(sim_results: SimulationResultBuilder):
     for i in range(n_spot_markets):
         spot_market = await get_spot_market_account(program, i)
         insurance_fund_balance = await get_insurance_fund_balance(connection, spot_market)
-        sim_results.add_final_spot_market(insurance_fund_balance, spot_market)
+        spot_vault_balance = await get_spot_vault_balance(connection, spot_market)
+
+        sim_results.add_final_spot_market(insurance_fund_balance, spot_vault_balance, spot_market)
     
     print('---')
 
