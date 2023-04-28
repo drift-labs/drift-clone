@@ -4,17 +4,15 @@ from solana.rpc.async_api import AsyncClient
 from solana.publickey import PublicKey
 from solana.keypair import Keypair
 
-import driftpy
+import sys
+sys.path.append('driftpy/src/')
+
 from driftpy.constants.config import configs
 from driftpy.clearing_house import ClearingHouse
 from driftpy.types import (
     InsuranceFundStake
 )
-
-from anchorpy import Provider
-from anchorpy import Wallet
-from anchorpy import Instruction
-from anchorpy.coder.accounts import (
+from driftpy.accounts import (
     get_state_account,
     get_spot_market_vault_public_key,
     get_insurance_fund_vault_public_key,
@@ -22,6 +20,12 @@ from anchorpy.coder.accounts import (
     get_user_account_public_key,
     get_user_stats_account_public_key,
     get_insurance_fund_stake_public_key,
+)
+
+from anchorpy import Provider
+from anchorpy import Wallet
+from anchorpy import Instruction
+from anchorpy.coder.accounts import (
     _account_discriminator,
 )
 
@@ -31,11 +35,8 @@ import shutil
 import base64
 import os
 from dotenv import load_dotenv
-import sys
 from typing import List, Optional
-sys.path.append('driftpy/src/')
 
-print(driftpy.__path__)
 
 # get all user accounts
 # get market accounts

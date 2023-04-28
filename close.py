@@ -1,3 +1,7 @@
+import sys
+sys.path.append("driftpy/src/")
+sys.path.append("drift-sim/")
+
 import pathlib
 from tqdm import tqdm
 import os
@@ -43,10 +47,6 @@ import numpy as np
 from slack import Slack, SimulationResultBuilder, ExpiredMarket
 from helpers import load_local_users, LocalValidator
 
-import sys
-
-sys.path.append("driftpy/src/")
-sys.path.append("drift-sim/")
 
 
 async def view_logs(sig: str, provider: Provider, print: bool = True):
