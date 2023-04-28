@@ -74,3 +74,12 @@ These environment varibles are required to run the scripts
     - idl is up to date (can use `update_idl.sh` to do this)
 - sometimes the validator doesnt shutdown cleanly 
     - check the pid from `ps aux | grep solana` and kill
+
+
+
+# Developing
+
+Use the formater/linter (add this to vs code):
+```
+autopep8 --in-place --aggressive --aggressive
+```

@@ -10,3 +10,5 @@ termcolor
 slack-sdk
 parsing
 pythclient
+autopep8==2.0.2
+flake8==6.0.0
