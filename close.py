@@ -1,4 +1,5 @@
 import sys
+import timeit
 sys.path.append("driftpy/src/")
 sys.path.append("drift-sim/")
 
@@ -307,7 +308,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
         withdraw_amount = int(v_amount * n_shares / total_shares)
         print(f"withdrawing {withdraw_amount/QUOTE_PRECISION}...")
 
-        if round(withdraw_amount) == 0:
+        if round(withdraw_amount/QUOTE_PRECISION) == 0:
             print(f"IF stake too small: {round(withdraw_amount)}")
             return None
 
