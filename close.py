@@ -1,5 +1,6 @@
 import sys
 import timeit
+import traceback
 sys.path.append("driftpy/src/")
 sys.path.append("drift-sim/")
 
@@ -188,6 +189,8 @@ async def clone_close(sim_results: SimulationResultBuilder):
                 last_valid_block_height=slot+10)
         except Exception as e:
             print(f"error confirming remove_liquidity error: {e}")
+            traceback.print_exc()
+
     perp_market = await get_perp_market_account(state_ch.program, perp_market_idx)
     print("market.amm.user_lp_shares == 0: ", perp_market.amm.user_lp_shares == 0)
 
@@ -195,7 +198,15 @@ async def clone_close(sim_results: SimulationResultBuilder):
     print("waiting for expiry...")
 
     for i, sig in enumerate(sigs):
-        await provider.connection.confirm_transaction(sig, commitment.Confirmed)
+        try:
+            slot = (await provider.connection.get_slot())["result"]
+            await provider.connection.confirm_transaction(
+                sig,
+                commitment=commitment.Confirmed,
+                last_valid_block_height=slot+10)
+        except Exception as e:
+            print(f"error confirming update_[perp|spot]_market txs: {e}")
+            traceback.print_exc()
 
     while True:
         slot = (await provider.connection.get_slot())["result"]
@@ -656,6 +667,3 @@ if __name__ == "__main__":
     import asyncio
 
     asyncio.run(main())
-
-
-# %%
