@@ -193,7 +193,6 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
     # fully expire market
     print("waiting for expiry...")
-    from solana.rpc import commitment
 
     for i, sig in enumerate(sigs):
         await provider.connection.confirm_transaction(sig, commitment.Confirmed)
