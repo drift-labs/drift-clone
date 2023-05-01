@@ -650,7 +650,7 @@ async def main():
     sim_results.set_start_time(dt.datetime.utcnow())
 
     script_file = "start_local.sh"
-    os.system(f"cat {script_file}")
+    # os.system(f"cat {script_file}")
     print()
 
     validator = LocalValidator(script_file)
