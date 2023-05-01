@@ -180,7 +180,14 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
     # verify
     if len(_sigs) > 0:
-        await connection.confirm_transaction(_sigs[-1])
+        try:
+            slot = (await provider.connection.get_slot())["result"]
+            await connection.confirm_transaction(
+                _sigs[-1],
+                commitment=commitment.Confirmed,
+                last_valid_block_height=slot+10)
+        except Exception as e:
+            print(f"error confirming remove_liquidity error: {e}")
     perp_market = await get_perp_market_account(state_ch.program, perp_market_idx)
     print("market.amm.user_lp_shares == 0: ", perp_market.amm.user_lp_shares == 0)
 
