@@ -50,7 +50,6 @@ from slack import Slack, SimulationResultBuilder, ExpiredMarket
 from helpers import load_local_users, LocalValidator
 
 
-
 async def view_logs(sig: str, provider: Provider, print: bool = True):
     provider.connection._commitment = commitment.Confirmed
     logs = ""
@@ -645,6 +644,7 @@ async def clone_close(sim_results: SimulationResultBuilder):
 
 
 async def main():
+    print("simulating a close of all open positions")
     slack = Slack()
     sim_results = SimulationResultBuilder(slack)
     sim_results.set_start_time(dt.datetime.utcnow())
@@ -653,8 +653,10 @@ async def main():
     # os.system(f"cat {script_file}")
     print()
 
+    print("starting validator")
     validator = LocalValidator(script_file)
     validator.start()
+    print("validator started")
     time.sleep(8)
 
     try:
